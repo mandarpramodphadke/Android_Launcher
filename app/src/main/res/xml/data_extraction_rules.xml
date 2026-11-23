@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ backup rules.
+     * The GGUF model (~1.1 GB) never goes to the cloud: it would blow the 25 MB quota and abort
+       the whole backup.
+     * The Room database (chat history, app categories) stays off the cloud for privacy; users get
+       an end-to-end encrypted export/import instead (Settings ▸ Backup).
+     * A user-initiated device-to-device transfer copies everything, including the model, so the
+       new phone does not need to re-download it. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="models" />
+        <exclude domain="database" path="ai_launcher.db" />
+        <exclude domain="database" path="ai_launcher.db-wal" />
+        <exclude domain="database" path="ai_launcher.db-shm" />
+    </cloud-backup>
+    <device-transfer />
+</data-extraction-rules>

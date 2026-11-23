@@ -1,0 +1,23 @@
+# Gradle / Android Studio
+.gradle/
+build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+.idea/
+.kotlin/
+.DS_Store
+
+# Local, machine-specific configuration (SDK path, OAuth client id, signing secrets, llama.cpp dir)
+local.properties
+
+# Firebase project configuration (project-specific; add your own, see README)
+app/google-services.json
+
+# Signing material
+*.jks
+*.keystore
+
+# Model weights must never be committed
+*.gguf

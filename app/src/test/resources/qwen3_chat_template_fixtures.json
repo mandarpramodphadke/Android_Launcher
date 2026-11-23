@@ -1,0 +1,304 @@
+[
+ {
+  "name": "plain_thinking",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are Aura.\nBe brief."
+   },
+   {
+    "role": "user",
+    "content": "Hello 👋 naïve café?"
+   }
+  ],
+  "tools": [],
+  "enableThinking": true,
+  "expected": "<|im_start|>system\nYou are Aura.\nBe brief.<|im_end|>\n<|im_start|>user\nHello 👋 naïve café?<|im_end|>\n<|im_start|>assistant\n"
+ },
+ {
+  "name": "tools_no_think",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are Aura.\nBe brief."
+   },
+   {
+    "role": "user",
+    "content": "Wake me at 6:45 /no_think"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "set_alarm",
+     "description": "Set an alarm — wake-up ⏰",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "hour": {
+        "type": "integer"
+       },
+       "minute": {
+        "type": "integer"
+       },
+       "days": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "hour",
+       "minute"
+      ]
+     }
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "launch_app",
+     "description": "Open an app",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "appName": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "appName"
+      ]
+     }
+    }
+   }
+  ],
+  "enableThinking": false,
+  "expected": "<|im_start|>system\nYou are Aura.\nBe brief.\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n{\"type\": \"function\", \"function\": {\"name\": \"set_alarm\", \"description\": \"Set an alarm — wake-up ⏰\", \"parameters\": {\"type\": \"object\", \"properties\": {\"hour\": {\"type\": \"integer\"}, \"minute\": {\"type\": \"integer\"}, \"days\": {\"type\": \"array\", \"items\": {\"type\": \"integer\"}}}, \"required\": [\"hour\", \"minute\"]}}}\n{\"type\": \"function\", \"function\": {\"name\": \"launch_app\", \"description\": \"Open an app\", \"parameters\": {\"type\": \"object\", \"properties\": {\"appName\": {\"type\": \"string\"}}, \"required\": [\"appName\"]}}}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call><|im_end|>\n<|im_start|>user\nWake me at 6:45 /no_think<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+ },
+ {
+  "name": "multi_turn_reasoning_dropped",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are Aura.\nBe brief."
+   },
+   {
+    "role": "user",
+    "content": "Is 391 prime?"
+   },
+   {
+    "role": "assistant",
+    "content": "No, 17 × 23.",
+    "reasoning_content": "Check 17: 17*23=391."
+   },
+   {
+    "role": "user",
+    "content": "And 397?"
+   }
+  ],
+  "tools": [],
+  "enableThinking": true,
+  "expected": "<|im_start|>system\nYou are Aura.\nBe brief.<|im_end|>\n<|im_start|>user\nIs 391 prime?<|im_end|>\n<|im_start|>assistant\nNo, 17 × 23.<|im_end|>\n<|im_start|>user\nAnd 397?<|im_end|>\n<|im_start|>assistant\n"
+ },
+ {
+  "name": "tool_round_trip",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are Aura.\nBe brief."
+   },
+   {
+    "role": "user",
+    "content": "Summarize my day"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "reasoning_content": "Need the agenda.",
+    "tool_calls": [
+     {
+      "type": "function",
+      "function": {
+       "name": "get_today_agenda",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "{\"events\": [], \"date\": \"Monday\"}"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "set_alarm",
+     "description": "Set an alarm — wake-up ⏰",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "hour": {
+        "type": "integer"
+       },
+       "minute": {
+        "type": "integer"
+       },
+       "days": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "hour",
+       "minute"
+      ]
+     }
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "launch_app",
+     "description": "Open an app",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "appName": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "appName"
+      ]
+     }
+    }
+   }
+  ],
+  "enableThinking": true,
+  "expected": "<|im_start|>system\nYou are Aura.\nBe brief.\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n{\"type\": \"function\", \"function\": {\"name\": \"set_alarm\", \"description\": \"Set an alarm — wake-up ⏰\", \"parameters\": {\"type\": \"object\", \"properties\": {\"hour\": {\"type\": \"integer\"}, \"minute\": {\"type\": \"integer\"}, \"days\": {\"type\": \"array\", \"items\": {\"type\": \"integer\"}}}, \"required\": [\"hour\", \"minute\"]}}}\n{\"type\": \"function\", \"function\": {\"name\": \"launch_app\", \"description\": \"Open an app\", \"parameters\": {\"type\": \"object\", \"properties\": {\"appName\": {\"type\": \"string\"}}, \"required\": [\"appName\"]}}}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call><|im_end|>\n<|im_start|>user\nSummarize my day<|im_end|>\n<|im_start|>assistant\n<think>\nNeed the agenda.\n</think>\n\n<tool_call>\n{\"name\": \"get_today_agenda\", \"arguments\": {}}\n</tool_call><|im_end|>\n<|im_start|>user\n<tool_response>\n{\"events\": [], \"date\": \"Monday\"}\n</tool_response><|im_end|>\n<|im_start|>assistant\n"
+ },
+ {
+  "name": "two_tool_results_grouped",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are Aura.\nBe brief."
+   },
+   {
+    "role": "user",
+    "content": "Set alarms at 6 and 7"
+   },
+   {
+    "role": "assistant",
+    "content": "On it.",
+    "tool_calls": [
+     {
+      "type": "function",
+      "function": {
+       "name": "set_alarm",
+       "arguments": {
+        "hour": 6,
+        "minute": 0
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "set_alarm",
+       "arguments": {
+        "hour": 7,
+        "minute": 0,
+        "days": [
+         2,
+         3
+        ]
+       }
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "content": "{\"status\": \"success\"}"
+   },
+   {
+    "role": "tool",
+    "content": "{\"status\": \"success\"}"
+   },
+   {
+    "role": "user",
+    "content": "Thanks! /no_think"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "set_alarm",
+     "description": "Set an alarm — wake-up ⏰",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "hour": {
+        "type": "integer"
+       },
+       "minute": {
+        "type": "integer"
+       },
+       "days": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "hour",
+       "minute"
+      ]
+     }
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "launch_app",
+     "description": "Open an app",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "appName": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "appName"
+      ]
+     }
+    }
+   }
+  ],
+  "enableThinking": false,
+  "expected": "<|im_start|>system\nYou are Aura.\nBe brief.\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n{\"type\": \"function\", \"function\": {\"name\": \"set_alarm\", \"description\": \"Set an alarm — wake-up ⏰\", \"parameters\": {\"type\": \"object\", \"properties\": {\"hour\": {\"type\": \"integer\"}, \"minute\": {\"type\": \"integer\"}, \"days\": {\"type\": \"array\", \"items\": {\"type\": \"integer\"}}}, \"required\": [\"hour\", \"minute\"]}}}\n{\"type\": \"function\", \"function\": {\"name\": \"launch_app\", \"description\": \"Open an app\", \"parameters\": {\"type\": \"object\", \"properties\": {\"appName\": {\"type\": \"string\"}}, \"required\": [\"appName\"]}}}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call><|im_end|>\n<|im_start|>user\nSet alarms at 6 and 7<|im_end|>\n<|im_start|>assistant\nOn it.\n<tool_call>\n{\"name\": \"set_alarm\", \"arguments\": {\"hour\": 6, \"minute\": 0}}\n</tool_call>\n<tool_call>\n{\"name\": \"set_alarm\", \"arguments\": {\"hour\": 7, \"minute\": 0, \"days\": [2, 3]}}\n</tool_call><|im_end|>\n<|im_start|>user\n<tool_response>\n{\"status\": \"success\"}\n</tool_response>\n<tool_response>\n{\"status\": \"success\"}\n</tool_response><|im_end|>\n<|im_start|>user\nThanks! /no_think<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+ },
+ {
+  "name": "no_system_prompt",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hi"
+   }
+  ],
+  "tools": [],
+  "enableThinking": false,
+  "expected": "<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+ }
+]

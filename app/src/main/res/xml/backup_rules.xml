@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup rules for Android 10/11 (see data_extraction_rules.xml for Android 12+). -->
+<full-backup-content>
+    <exclude domain="file" path="models" />
+    <exclude domain="database" path="ai_launcher.db" />
+    <exclude domain="database" path="ai_launcher.db-wal" />
+    <exclude domain="database" path="ai_launcher.db-shm" />
+</full-backup-content>

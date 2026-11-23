@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Cloud backup for AI Launcher. Documents hold an AES-256-GCM envelope encrypted on the phone with a
+// user passphrase (PBKDF2-SHA256), so Firebase only ever stores ciphertext. Each user can access
+// exclusively their own backups.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/backups/{backupId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['envelope', 'createdAt', 'device', 'appVersion'])
+        && request.resource.data.envelope is string
+        && request.resource.data.envelope.size() < 1000000
+        && request.resource.data.createdAt is int;
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
