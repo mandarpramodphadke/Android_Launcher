@@ -109,6 +109,12 @@ class AndroidActionExecutor @Inject constructor(
         val best = ranked.firstOrNull()
         if (best == null || best.second < FuzzyMatcher.CONFIDENT_MATCH) {
             if (folder != null) return openFolder(folder)
+            // The launcher's own To-do & Daily Planner screen.
+            if (PLANNER_NAME.containsMatchIn(c.appName)) {
+                val todos = TODO_NAME.containsMatchIn(c.appName)
+                navigator.navigate(if (todos) LauncherDestination.Todos else LauncherDestination.Planner)
+                return ActionResult.ok(if (todos) "Opened your to-dos" else "Opened your planner")
+            }
             val suggestions = ranked.take(3).joinToString { it.first.label }
             return ActionResult.fail(
                 if (suggestions.isEmpty()) "I couldn't find an app called \"${c.appName}\"."
@@ -176,5 +182,10 @@ class AndroidActionExecutor @Inject constructor(
         } catch (_: SecurityException) {
             false
         }
+    }
+
+    private companion object {
+        val PLANNER_NAME = Regex("""\b(planner|day plan|daily plan|schedule|agenda|to-?dos?|to-do list|task list|tasks)\b""", RegexOption.IGNORE_CASE)
+        val TODO_NAME = Regex("""\b(to-?dos?|to-do list|task list|tasks)\b""", RegexOption.IGNORE_CASE)
     }
 }

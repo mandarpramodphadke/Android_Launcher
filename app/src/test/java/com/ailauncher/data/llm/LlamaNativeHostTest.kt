@@ -69,7 +69,7 @@ class LlamaNativeHostTest {
         assertThat(LlamaNative.systemInfo()).contains("Devices")
 
         val progress = mutableListOf<Float>()
-        val handle = LlamaNative.loadModel(modelPath!!, 1024, 4, 512, true, true) { p ->
+        val handle = LlamaNative.loadModel(modelPath!!, 1024, 4, 512, true, true, 0) { p ->
             progress += p
             true
         }

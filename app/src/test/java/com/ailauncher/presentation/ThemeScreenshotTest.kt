@@ -44,7 +44,21 @@ import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ThemeMode
 import com.ailauncher.domain.model.UpcomingEvent
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.model.DockEntry
+import com.ailauncher.domain.model.FolderAccent
+import com.ailauncher.domain.model.GridPosition
+import com.ailauncher.domain.model.HomeItem
+import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.PlannerBlock
+import com.ailauncher.domain.model.SmartExtraction
+import com.ailauncher.domain.model.SmartPill
 import com.ailauncher.presentation.drawer.AlphaSection
+import com.ailauncher.presentation.drawer.DrawerCallbacks
+import com.ailauncher.presentation.home.Glance
+import com.ailauncher.presentation.home.HomeCallbacks
 import com.ailauncher.presentation.drawer.CategorySection
 import com.ailauncher.presentation.drawer.DrawerContent
 import com.ailauncher.presentation.drawer.DrawerUiState
@@ -101,7 +115,12 @@ class ThemeScreenshotTest {
             add(Shot("home-minimal-amoled-light-wallpaper") { Home(settings(AppTheme.AMOLED).copy(minimalMode = true), LightWallpaper, WallpaperTint.Dark) })
             add(Shot("home-neon-themed-icons") { Home(settings(AppTheme.NEON).copy(iconStyle = IconStyle.THEMED), DarkWallpaper, WallpaperTint.Light) })
 
+            add(Shot("home-material-you-page-2") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, page = 1) })
+            add(Shot("home-classic-5-columns") { Home(settings(AppTheme.CLASSIC).copy(homeGridColumns = 5), LightWallpaper, WallpaperTint.Dark) })
+
             add(Shot("drawer-neon-categories") { Drawer(settings(AppTheme.NEON), DrawerTab.CATEGORIES, DrawerLayout.GRID) })
+            add(Shot("drawer-material-you-folders") { Drawer(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), DrawerTab.FOLDERS, DrawerLayout.GRID) })
+            add(Shot("drawer-colourful-light-folders") { Drawer(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), DrawerTab.FOLDERS, DrawerLayout.GRID) })
             add(Shot("drawer-colourful-light-categories") { Drawer(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), DrawerTab.CATEGORIES, DrawerLayout.LIST) })
             add(Shot("drawer-colourful-dark-grid") { Drawer(settings(AppTheme.COLORFUL, ThemeMode.DARK), DrawerTab.ALPHABETICAL, DrawerLayout.GRID) })
             add(Shot("drawer-amoled-list") { Drawer(settings(AppTheme.AMOLED), DrawerTab.ALPHABETICAL, DrawerLayout.LIST) })
@@ -132,7 +151,7 @@ class ThemeScreenshotTest {
     // ------------------------------------------------------------------------------------ scenes
 
     @Composable
-    private fun Home(settings: LauncherSettings, wallpaper: Brush, tint: WallpaperTint) {
+    private fun Home(settings: LauncherSettings, wallpaper: Brush, tint: WallpaperTint, page: Int = 0) {
         AiLauncherTheme(settings) {
             Box(Modifier.fillMaxSize().background(wallpaper)) {
                 HomeContent(
@@ -140,19 +159,29 @@ class ThemeScreenshotTest {
                         now = Now,
                         use24Hour = false,
                         upcoming = UpcomingEvent(UpcomingEvent.Kind.ALARM, "Gym", Now.plusHours(21).toInstant().toEpochMilli()),
-                        dock = Apps.filter { it.isInDock }.sortedBy { it.dockPosition },
+                        dock = Apps.filter { it.isInDock }.sortedBy { it.dockPosition }.take(4).map { DockEntry.App(it) } +
+                            DockEntry.Folder(WorkFolder.copy(dockPosition = 4)),
+                        apps = Apps.associateBy { it.componentKey },
+                        homeItems = HomeItems,
+                        pageCount = 2,
+                        folders = mapOf(WorkFolder.id to WorkFolder, TravelFolder.id to TravelFolder),
+                        pills = listOf(SmartPill("otp", "Bank", SmartExtraction.Otp("482913"), Now.toInstant().toEpochMilli())),
+                        badges = mapOf(Apps[1].packageName to 3),
+                        glance = Glance(
+                            openTodos = 3,
+                            urgentTodos = 1,
+                            nextBlock = PlannerBlock(1, Now.toLocalDate(), 10 * 60, 90, "Deep work", null, false),
+                        ),
                         settings = settings,
                     ),
                     tint = tint,
                     style = LocalLauncherStyle.current,
-                    onOpenClock = {},
-                    onLaunch = {},
-                    onAppLongPress = {},
-                    onQueryChange = {},
-                    onSubmitQuery = {},
-                    onOpenChat = {},
-                    onVoice = {},
-                    onOpenDrawer = {},
+                    pagerState = rememberPagerState(initialPage = page) { 2 },
+                    queryState = rememberTextFieldState(),
+                    clip = null,
+                    widgetHost = null,
+                    editingWidgetId = null,
+                    callbacks = HomeCallbacks(),
                 )
             }
         }
@@ -176,15 +205,14 @@ class ThemeScreenshotTest {
                         notSortedByAi = 0,
                         progress = CategorizationProgress(running = false, categorized = 0, total = 0),
                         modelReady = true,
+                        folders = listOf(WorkFolder, TravelFolder),
+                        appsByPackage = Apps.groupBy { it.packageName },
+                        suggestions = Apps.take(5),
+                        badges = mapOf(Apps[1].packageName to 2),
                     ),
+                    queryState = rememberTextFieldState(),
                     minimal = settings.minimalMode,
-                    onQueryChange = {},
-                    onToggleLayout = {},
-                    onOpenSettings = {},
-                    onSelectTab = {},
-                    onLaunch = {},
-                    onLongPress = {},
-                    onOrganize = {},
+                    callbacks = DrawerCallbacks(),
                 )
             }
         }
@@ -252,6 +280,25 @@ class ThemeScreenshotTest {
             updatedAt = 0,
         )
 
+        val WorkFolder = CustomFolder(
+            id = 1,
+            name = "Work",
+            description = "Apps for my job",
+            accent = FolderAccent.TEAL,
+            sortOrder = 0,
+            packageNames = listOf("com.example.calendar", "com.example.gmail", "com.example.keepnotes", "com.example.notion"),
+            dockPosition = null,
+        )
+        val TravelFolder = CustomFolder(
+            id = 2,
+            name = "Travel",
+            description = null,
+            accent = FolderAccent.AMBER,
+            sortOrder = 1,
+            packageNames = listOf("com.example.maps", "com.example.chrome"),
+            dockPosition = null,
+        )
+
         val Apps = listOf(
             app("Phone", AppCategory.COMMUNICATION, dock = 0),
             app("Messages", AppCategory.COMMUNICATION, dock = 1),
@@ -277,6 +324,18 @@ class ThemeScreenshotTest {
             app("Files", AppCategory.UTILITIES),
             app("Settings", AppCategory.UTILITIES),
             app("Notion", null),
+        )
+
+        /** Page 1: a folder, apps and a 4×2 widget under the clock; page 2: a folder, an app and a widget. */
+        val HomeItems = listOf(
+            HomeItem(1, GridPosition(page = 0, x = 0, y = 2), HomeItemContent.Folder(WorkFolder.id)),
+            HomeItem(2, GridPosition(page = 0, x = 1, y = 2), HomeItemContent.App(Apps[5].componentKey)),
+            HomeItem(3, GridPosition(page = 0, x = 2, y = 2), HomeItemContent.App(Apps[8].componentKey)),
+            HomeItem(4, GridPosition(page = 0, x = 3, y = 2), HomeItemContent.App(Apps[13].componentKey)),
+            HomeItem(5, GridPosition(page = 0, x = 0, y = 3, spanX = 4, spanY = 2), HomeItemContent.Widget(7, "com.example.clock/.Widget")),
+            HomeItem(6, GridPosition(page = 1, x = 0, y = 0), HomeItemContent.Folder(TravelFolder.id)),
+            HomeItem(7, GridPosition(page = 1, x = 1, y = 0), HomeItemContent.App(Apps[16].componentKey)),
+            HomeItem(8, GridPosition(page = 1, x = 0, y = 1, spanX = 2, spanY = 2), HomeItemContent.Widget(8, "com.example.notes/.Widget")),
         )
 
         /** Stand-in launcher icons (no PackageManager in tests), honouring the icon style. */

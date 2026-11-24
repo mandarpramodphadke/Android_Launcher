@@ -36,6 +36,13 @@ val googleWebClientId = config("google.web.client.id").orEmpty()
 // app/src/main/cpp/llama.cpp and, failing that, downloads the pinned release tag.
 val llamaCppDir = config("llama.cpp.dir")
 
+// Optional GPU offload (arm64): the ggml Vulkan backend. On by default; `ggml.vulkan=false` builds a
+// CPU-only library. Header checkouts can be supplied for offline builds, otherwise CMake fetches the
+// pinned Vulkan-Headers / SPIRV-Headers tags.
+val ggmlVulkan = config("ggml.vulkan")?.toBooleanStrictOrNull() ?: true
+val vulkanHeadersDir = config("vulkan.headers.dir")
+val spirvHeadersDir = config("spirv.headers.dir")
+
 android {
     namespace = "com.ailauncher"
     // Compose 1.13 requires compiling against the Android 17 QPR (API 37.1). targetSdk stays at 36,
@@ -51,8 +58,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -72,6 +79,9 @@ android {
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
                 arguments += "-DANDROID_STL=c++_shared"
                 llamaCppDir?.let { arguments += "-DLLAMA_CPP_DIR=${file(it).absolutePath}" }
+                arguments += "-DAILAUNCHER_VULKAN=${if (ggmlVulkan) "ON" else "OFF"}"
+                vulkanHeadersDir?.let { arguments += "-DVULKAN_HEADERS_DIR=${file(it).absolutePath}" }
+                spirvHeadersDir?.let { arguments += "-DSPIRV_HEADERS_DIR=${file(it).absolutePath}" }
             }
         }
     }

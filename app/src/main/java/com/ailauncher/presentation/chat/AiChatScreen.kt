@@ -1,6 +1,7 @@
 package com.ailauncher.presentation.chat
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,25 +30,39 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.ShortText
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.NotificationAdd
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.ToggleOn
+import androidx.compose.material.icons.rounded.ViewTimeline
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,8 +73,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -77,12 +93,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ailauncher.data.share.SharedPayload
 import com.ailauncher.domain.ai.SystemPrompts
 import com.ailauncher.domain.ai.ToolNames
+import com.ailauncher.domain.clipboard.ClipAction
 import com.ailauncher.domain.model.ChatRole
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.InferenceMode
@@ -91,26 +112,46 @@ import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.presentation.components.EngineDetailsSheet
 import com.ailauncher.presentation.components.EngineStatusChip
+import com.ailauncher.presentation.components.LauncherTextField
 import com.ailauncher.presentation.components.MarkdownText
+import com.ailauncher.presentation.components.NotificationDigestDisclosure
+import com.ailauncher.presentation.components.SpecialAccess
 import com.ailauncher.presentation.components.ThemedSystemBarIcons
+import com.ailauncher.presentation.components.sharedCommandBar
+import com.ailauncher.presentation.planner.PlannerTab
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
-private val QUICK_ACTIONS = listOf("Set alarm for 7 AM", "Organize my apps", "Summarize my day", "Timer 10 min", "Turn on flashlight")
+private val QUICK_ACTIONS = listOf(
+    "Summarize my day",
+    "Plan my day",
+    "What did I miss?",
+    "Set alarm for 7 AM",
+    "Apps I haven't used in a month",
+    "Largest videos",
+    "Timer 10 min",
+    "Turn on flashlight",
+)
 
 @Composable
 fun AiChatScreen(
     onBack: () -> Unit,
     onOpenModelSetup: () -> Unit,
+    onOpenPlanner: (PlannerTab) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val shared by viewModel.shared.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    var input by rememberSaveable { mutableStateOf("") }
+    val snackbar = remember { SnackbarHostState() }
     var showEngine by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var showDigestDisclosure by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     ThemedSystemBarIcons()
+    LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
 
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         // Proceed either way: tools degrade gracefully (local reminders, agenda without calendar).
@@ -128,26 +169,71 @@ fun AiChatScreen(
         }
     }
 
-    fun permissionsFor(toolName: String): List<String> = buildList {
-        if (toolName == ToolNames.CREATE_REMINDER) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-            if (state.saveRemindersToCalendar) {
-                add(Manifest.permission.READ_CALENDAR)
-                add(Manifest.permission.WRITE_CALENDAR)
+    fun permissionsFor(invocation: ToolInvocation): List<String> = buildList {
+        when (invocation.name) {
+            ToolNames.CREATE_REMINDER -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+                if (state.saveRemindersToCalendar) {
+                    add(Manifest.permission.READ_CALENDAR)
+                    add(Manifest.permission.WRITE_CALENDAR)
+                }
             }
+            ToolNames.CONTACT_ACTION -> {
+                add(Manifest.permission.READ_CONTACTS)
+                // Without CALL_PHONE a call opens the dialer pre-filled instead.
+                val action = (invocation.resolved ?: invocation.arguments)["action"]?.jsonPrimitive?.contentOrNull
+                if (action.equals("call", ignoreCase = true)) add(Manifest.permission.CALL_PHONE)
+            }
+            ToolNames.MANAGE_PLANNER, ToolNames.GET_TODAY_AGENDA -> add(Manifest.permission.READ_CALENDAR)
         }
     }
+
+    // Permission a tool reported missing: ask, then re-run the question.
+    val retryPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted.values.any { it }) viewModel.retryLast()
+    }
+    val grant: (String) -> Unit = { need ->
+        when (need) {
+            "usage_access" -> SpecialAccess.open(context, SpecialAccess.usageAccessIntent(context), Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            "all_files" -> SpecialAccess.open(context, SpecialAccess.allFilesAccessIntent(context))
+            "media" -> retryPermissions.launch(SpecialAccess.mediaPermissions())
+            "contacts" -> retryPermissions.launch(arrayOf(Manifest.permission.READ_CONTACTS))
+            "notification_access" -> showDigestDisclosure = true
+        }
+    }
+    val cardCallbacks = ToolCardCallbacks(
+        onOpenApp = viewModel::openApp,
+        onHideApp = viewModel::hideApp,
+        onUninstallApp = viewModel::uninstallApp,
+        onOpenFile = { file ->
+            val uri = file.uri.toUri()
+            val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, file.mime ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (runCatching { context.startActivity(view) }.isSuccess) viewModel.recordFileAccess(file, "opened")
+            else viewModel.showMessage("No app can open ${file.name}")
+        },
+        onShareFile = { file ->
+            val send = Intent(Intent.ACTION_SEND).setType(file.mime ?: "*/*").putExtra(Intent.EXTRA_STREAM, file.uri.toUri())
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (runCatching { context.startActivity(Intent.createChooser(send, file.name)) }.isSuccess) viewModel.recordFileAccess(file, "shared")
+        },
+        onOpenPlanner = onOpenPlanner,
+        onGrant = grant,
+    )
+
+    fun needsCalendar(text: String) = text.contains("my day", ignoreCase = true) || text.contains("schedule", ignoreCase = true) ||
+        text.contains("agenda", ignoreCase = true) || text.contains("free", ignoreCase = true)
 
     fun send(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-        val agenda = trimmed.contains("my day", ignoreCase = true) || trimmed.contains("schedule", ignoreCase = true) ||
-            trimmed.contains("agenda", ignoreCase = true)
-        val action = {
-            viewModel.send(trimmed)
-            input = ""
-        }
-        if (agenda) withPermissions(listOf(Manifest.permission.READ_CALENDAR), action) else action()
+        val action = { viewModel.send(trimmed) }
+        if (needsCalendar(trimmed)) withPermissions(listOf(Manifest.permission.READ_CALENDAR), action) else action()
+    }
+
+    fun sendInput() {
+        val text = viewModel.input.text.toString()
+        if (text.isBlank()) return
+        if (needsCalendar(text)) withPermissions(listOf(Manifest.permission.READ_CALENDAR)) { viewModel.sendInput() } else viewModel.sendInput()
     }
 
     LaunchedEffect(state.messages.size) {
@@ -172,14 +258,14 @@ fun AiChatScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             ChatInput(
-                value = input,
-                onValueChange = { input = it },
+                state = viewModel.input,
                 busy = state.busy,
                 reasoning = state.mode == InferenceMode.REASONING,
                 onToggleReasoning = viewModel::toggleReasoning,
-                onSend = { send(input) },
+                onSend = ::sendInput,
                 onStop = viewModel::stop,
                 onQuickAction = ::send,
             )
@@ -192,11 +278,17 @@ fun AiChatScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
+            shared?.let { payload ->
+                item(key = "shared") {
+                    SharedContentCard(payload, onAction = viewModel::useShared, onDismiss = viewModel::dismissShared)
+                }
+            }
             items(state.messages.asReversed(), key = { it.message.id }) { item ->
                 MessageItem(
                     item = item,
+                    cardCallbacks = cardCallbacks,
                     onConfirm = { invocation ->
-                        withPermissions(permissionsFor(invocation.name)) { viewModel.confirmTool(item.message.id, invocation.id) }
+                        withPermissions(permissionsFor(invocation)) { viewModel.confirmTool(item.message.id, invocation.id) }
                     },
                     onCancel = { invocation -> viewModel.cancelTool(item.message.id, invocation.id) },
                 )
@@ -224,6 +316,16 @@ fun AiChatScreen(
             onDismiss = { showEngine = false },
         )
     }
+    if (showDigestDisclosure) {
+        NotificationDigestDisclosure(
+            onAccept = {
+                showDigestDisclosure = false
+                viewModel.enableNotificationDigest()
+                SpecialAccess.open(context, SpecialAccess.notificationListenerIntent(context), Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            },
+            onDismiss = { showDigestDisclosure = false },
+        )
+    }
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
@@ -242,8 +344,7 @@ fun AiChatScreen(
 
 @Composable
 private fun ChatInput(
-    value: String,
-    onValueChange: (String) -> Unit,
+    state: TextFieldState,
     busy: Boolean,
     reasoning: Boolean,
     onToggleReasoning: () -> Unit,
@@ -253,7 +354,7 @@ private fun ChatInput(
 ) {
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            AnimatedVisibility(visible = !busy && value.isEmpty()) {
+            AnimatedVisibility(visible = !busy && state.text.isEmpty()) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     QUICK_ACTIONS.forEach { action -> SuggestionChip(onClick = { onQuickAction(action) }, label = { Text(action) }) }
                 }
@@ -266,19 +367,67 @@ private fun ChatInput(
                     leadingIcon = { Icon(Icons.Rounded.Psychology, null, Modifier.size(18.dp)) },
                 )
                 Spacer(Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    placeholder = { Text("Message ${SystemPrompts.ASSISTANT_NAME}…") },
-                    maxLines = 5,
+                // The home screen's AI command bar morphs into this field (shared bounds).
+                LauncherTextField(
+                    state = state,
+                    placeholder = "Message ${SystemPrompts.ASSISTANT_NAME}…",
+                    lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).sharedCommandBar(),
                 )
                 Spacer(Modifier.width(8.dp))
                 if (busy) {
                     FilledIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop generating") }
                 } else {
-                    FilledIconButton(onClick = onSend, enabled = value.isNotBlank()) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
+                    FilledIconButton(onClick = onSend, enabled = state.text.isNotBlank()) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
+                }
+            }
+        }
+    }
+}
+
+/** Text or a PDF shared to the launcher: choose what the on-device assistant should do with it. */
+@Composable
+private fun SharedContentCard(payload: SharedPayload, onAction: (ClipAction) -> Unit, onDismiss: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (payload.kind == SharedPayload.Kind.PDF) Icons.Rounded.PictureAsPdf else Icons.AutoMirrored.Rounded.ShortText,
+                    null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    payload.title ?: if (payload.kind == SharedPayload.Kind.PDF) "Shared PDF" else "Shared text",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Dismiss") }
+            }
+            if (payload.text.isNotBlank()) {
+                Text(
+                    payload.text.take(240),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            payload.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            if (payload.text.isNotBlank()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val actions = buildList {
+                        add(ClipAction.SUMMARIZE)
+                        add(ClipAction.EXTRACT_TASKS)
+                        if (payload.kind == SharedPayload.Kind.TEXT && payload.text.length <= 120) add(ClipAction.ADD_TODO)
+                        add(ClipAction.ASK)
+                    }
+                    actions.forEach { action -> AssistChip(onClick = { onAction(action) }, label = { Text(action.label) }) }
                 }
             }
         }
@@ -286,7 +435,12 @@ private fun ChatInput(
 }
 
 @Composable
-private fun MessageItem(item: ChatMessageUi, onConfirm: (ToolInvocation) -> Unit, onCancel: (ToolInvocation) -> Unit) {
+private fun MessageItem(
+    item: ChatMessageUi,
+    cardCallbacks: ToolCardCallbacks,
+    onConfirm: (ToolInvocation) -> Unit,
+    onCancel: (ToolInvocation) -> Unit,
+) {
     val message = item.message
     if (message.role == ChatRole.USER) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -330,7 +484,7 @@ private fun MessageItem(item: ChatMessageUi, onConfirm: (ToolInvocation) -> Unit
             }
         }
         message.toolCalls.forEach { invocation ->
-            ToolActionCard(invocation, onConfirm = { onConfirm(invocation) }, onCancel = { onCancel(invocation) })
+            ToolActionCard(invocation, cardCallbacks, onConfirm = { onConfirm(invocation) }, onCancel = { onCancel(invocation) })
         }
         val footer = when {
             message.status == MessageStatus.CANCELLED -> "Stopped"
@@ -378,7 +532,7 @@ private fun ThoughtAccordion(thinking: String, live: Boolean, messageId: Long) {
 
 /** Inline confirmation card for a tool call (alarm, reminder, app launch, …). */
 @Composable
-private fun ToolActionCard(invocation: ToolInvocation, onConfirm: () -> Unit, onCancel: () -> Unit) {
+private fun ToolActionCard(invocation: ToolInvocation, cardCallbacks: ToolCardCallbacks, onConfirm: () -> Unit, onCancel: () -> Unit) {
     val (icon, title) = toolPresentation(invocation.name)
     Card(
         colors = CardDefaults.cardColors(
@@ -408,8 +562,14 @@ private fun ToolActionCard(invocation: ToolInvocation, onConfirm: () -> Unit, on
                     Button(onClick = onConfirm) { Text("Confirm") }
                 }
                 ToolStatus.RUNNING -> LinearProgressIndicator(Modifier.fillMaxWidth())
-                ToolStatus.SUCCEEDED -> StatusLine(Icons.Rounded.CheckCircle, invocation.resultMessage ?: "Done")
-                ToolStatus.FAILED -> StatusLine(Icons.Rounded.ErrorOutline, invocation.resultMessage ?: "Failed")
+                ToolStatus.SUCCEEDED -> {
+                    StatusLine(Icons.Rounded.CheckCircle, invocation.resultMessage ?: "Done")
+                    ToolResultExtras(invocation.displayData, cardCallbacks)
+                }
+                ToolStatus.FAILED -> {
+                    StatusLine(Icons.Rounded.ErrorOutline, invocation.resultMessage ?: "Failed")
+                    ToolResultExtras(invocation.displayData, cardCallbacks)
+                }
                 ToolStatus.CANCELLED -> Text("Cancelled", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -433,6 +593,13 @@ private fun toolPresentation(name: String): Pair<ImageVector, String> = when (na
     ToolNames.TOGGLE_SETTING -> Icons.Rounded.ToggleOn to "Device setting"
     ToolNames.SORT_APPS -> Icons.Rounded.AutoAwesome to "Organize apps"
     ToolNames.GET_TODAY_AGENDA -> Icons.Rounded.CalendarToday to "Today's agenda"
+    ToolNames.LIST_UNUSED_APPS -> Icons.Rounded.Apps to "Unused apps"
+    ToolNames.FIND_LARGEST_FILES -> Icons.Rounded.Storage to "Largest files"
+    ToolNames.QUERY_FILES_BY_ACTIVITY -> Icons.Rounded.FolderOpen to "Files"
+    ToolNames.MANAGE_TODO -> Icons.Rounded.Checklist to "To-do"
+    ToolNames.MANAGE_PLANNER -> Icons.Rounded.ViewTimeline to "Day planner"
+    ToolNames.SUMMARIZE_NOTIFICATIONS -> Icons.Rounded.NotificationsActive to "Notifications"
+    ToolNames.CONTACT_ACTION -> Icons.Rounded.Call to "Contact"
     else -> Icons.Rounded.AutoAwesome to name
 }
 
@@ -444,7 +611,8 @@ private fun EmptyChat() {
         Text("Hi, I'm ${SystemPrompts.ASSISTANT_NAME}", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
         Text(
-            "I run entirely on your phone. Ask me anything, or tell me to set alarms, reminders and timers, open apps or organize your home screen.",
+            "I run entirely on your phone. Ask me anything, or tell me to set alarms, reminders and timers, open apps and folders, " +
+                "manage your to-dos and day plan, find big or old files, spot unused apps, or call and message contacts.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 24.dp),

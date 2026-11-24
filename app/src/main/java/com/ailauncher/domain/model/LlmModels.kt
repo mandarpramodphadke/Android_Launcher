@@ -73,6 +73,8 @@ data class ModelRuntimeInfo(
     val kvCacheType: String,
     val sizeBytes: Long,
     val parameterCount: Long,
+    /** "CPU", or the GPU the layers run on ("GPU · Adreno (TM) 740 · 29 layers"). */
+    val accelerator: String = "CPU",
 )
 
 /** Lifecycle of the on-device model, observed by the AI drawer status indicator. */

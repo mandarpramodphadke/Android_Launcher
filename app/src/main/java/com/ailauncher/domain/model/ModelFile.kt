@@ -1,16 +1,31 @@
 package com.ailauncher.domain.model
 
-/** Description of a downloadable GGUF build. */
+/** Description of a downloadable (or user-imported) GGUF build. */
 data class ModelSpec(
     val id: String,
     val displayName: String,
+    /** Path relative to the app's models directory. */
     val fileName: String,
+    /** Empty for imported models. */
     val downloadUrl: String,
     val sizeBytes: Long,
     /** Hex SHA-256 of the file, verified after download. Null skips verification. */
     val sha256: String?,
     val license: String,
-)
+    /** One line for the model picker ("Fastest, basic answers"). */
+    val summary: String = "",
+    /** Phones with less total RAM than this are warned before choosing the model. */
+    val recommendedRamBytes: Long = 0L,
+) {
+    val imported: Boolean get() = id.startsWith(IMPORTED_PREFIX)
+
+    companion object {
+        const val IMPORTED_PREFIX = "imported:"
+    }
+}
+
+/** One entry of the model switcher: a catalog or imported model, its file state, and whether it is active. */
+data class ModelOption(val spec: ModelSpec, val state: ModelFileState, val active: Boolean)
 
 /** State of the model file on disk and of its download. */
 sealed interface ModelFileState {

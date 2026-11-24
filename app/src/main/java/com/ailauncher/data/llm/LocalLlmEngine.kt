@@ -71,6 +71,7 @@ class LocalLlmEngine @Inject constructor(
     private val modelRepository: ModelRepository,
     private val settingsRepository: SettingsRepository,
     private val deviceResources: DeviceResources,
+    private val gpuGuard: GpuOffloadGuard,
     @ApplicationScope private val scope: CoroutineScope,
 ) : LlmEngine {
 
@@ -90,6 +91,8 @@ class LocalLlmEngine @Inject constructor(
     @Volatile private var configuredContext = ModelConfig().resolvedContextSize(deviceResources.memoryInfo().totalMem)
     @Volatile private var autoUnloadMinutes = ModelConfig().autoUnloadMinutes
     @Volatile private var watchdog: Job? = null
+    /** The loaded model runs on the GPU but hasn't completed a generation yet (crash guard armed). */
+    @Volatile private var gpuUnverified = false
 
     private val pendingForeground = AtomicInteger(0)
     @Volatile private var backgroundRunning = false
@@ -99,7 +102,20 @@ class LocalLlmEngine @Inject constructor(
 
     init {
         scope.launch {
+            // The GPU driver crashed the process last time: stay on the CPU from now on.
+            if (gpuGuard.consumeCrashMarker()) {
+                Log.w(TAG, "GPU offload crashed the previous session; switching to CPU-only")
+                gpuGuard.lastFallbackReason = "GPU offload was turned off because the graphics driver crashed. The CPU is used instead."
+                settingsRepository.updateModelConfig { it.copy(gpuOffload = false) }
+            }
+        }
+        scope.launch {
             settingsRepository.modelConfig.collect { config ->
+                // Another model (or CPU/GPU) was chosen: free the loaded one now, it reloads on next use.
+                val loaded = loadedConfig
+                if (handle != 0L && loaded != null && loaded.requiresReload(config) && !mutex.isLocked) {
+                    scope.launch { if (mutex.tryLock()) try { unloadLocked() } finally { mutex.unlock() } }
+                }
                 configuredContext = config.effectiveContext()
                 if (autoUnloadMinutes != config.autoUnloadMinutes) {
                     autoUnloadMinutes = config.autoUnloadMinutes
@@ -162,6 +178,8 @@ class LocalLlmEngine @Inject constructor(
                     backgroundRunning = true
                     preempted = false
                 }
+                val verifyingGpu = gpuUnverified
+                if (verifyingGpu) gpuGuard.begin()
                 try {
                     val raw = runNativeCancellable {
                         LlamaNative.setThreads(engine, threads)
@@ -181,12 +199,18 @@ class LocalLlmEngine @Inject constructor(
                         )
                     }
                     val stats = raw.toStats()
+                    if (verifyingGpu) {
+                        gpuUnverified = false
+                        gpuGuard.end()
+                    }
                     if (!foreground && preempted && stats.stopReason == StopReason.CANCELLED) throw LlmException.Preempted()
                     if (stats.stopReason == StopReason.CONTEXT_FULL && stats.generatedTokens == 0) throw LlmException.ContextOverflow()
                     send(GenerationEvent.Completed(stats))
                 } catch (e: IllegalStateException) {
                     throw LlmException.GenerationFailed(e.message ?: "Generation failed", e)
                 } finally {
+                    // A Kotlin-side failure is not a driver crash: disarm the guard.
+                    if (verifyingGpu && gpuUnverified) gpuGuard.end()
                     if (!foreground) backgroundRunning = false
                     scheduleWatchdog()
                 }
@@ -259,7 +283,7 @@ class LocalLlmEngine @Inject constructor(
             throw LlmException.NativeLibraryUnavailable(e)
         }
 
-        val file = modelRepository.readyModelFile() ?: run {
+        val file = modelRepository.activeModelFile() ?: run {
             _state.value = EngineState.NoModel
             throw LlmException.ModelNotAvailable()
         }
@@ -274,31 +298,69 @@ class LocalLlmEngine @Inject constructor(
 
         _state.value = EngineState.Loading(0f)
         val threads = deviceResources.recommendedThreads(config.threads)
-        val newHandle = try {
-            // Never cancel a load half-way: the native handle would leak ~1.3 GB.
-            withContext(inferenceDispatcher + NonCancellable) {
-                LlamaNative.loadModel(
-                    path = file.absolutePath,
-                    nCtx = config.effectiveContext(),
-                    nThreads = threads,
-                    nBatch = N_BATCH,
-                    useMmap = config.useMmap,
-                    quantizeKvCache = config.quantizeKvCache,
-                    progress = { progress ->
-                        _state.value = EngineState.Loading(progress)
-                        true
-                    },
-                )
+        // Never cancel a load half-way: the native handle would leak ~1.3 GB.
+        suspend fun loadWith(gpuLayers: Int): Long = withContext(inferenceDispatcher + NonCancellable) {
+            LlamaNative.loadModel(
+                path = file.absolutePath,
+                nCtx = config.effectiveContext(),
+                nThreads = threads,
+                nBatch = N_BATCH,
+                useMmap = config.useMmap,
+                quantizeKvCache = config.quantizeKvCache,
+                nGpuLayers = gpuLayers,
+                progress = { progress ->
+                    _state.value = EngineState.Loading(progress)
+                    true
+                },
+            )
+        }
+
+        // GPU Offload (Vulkan): opt-in, guarded against driver crashes, and always able to fall
+        // back to the CPU path, which is the safe default.
+        var gpuLayers = 0
+        if (config.gpuOffload) {
+            gpuGuard.begin()
+            val device = withContext(inferenceDispatcher + NonCancellable) { runCatching { LlamaNative.enableGpu() }.getOrDefault("") }
+            if (device.isBlank()) {
+                gpuGuard.end()
+                gpuGuard.lastFallbackReason = "No Vulkan GPU is available on this phone, so the CPU is used."
+            } else {
+                gpuLayers = GPU_ALL_LAYERS
             }
+        }
+        val newHandle = try {
+            loadWith(gpuLayers)
         } catch (e: IllegalStateException) {
-            _state.value = EngineState.Error(e.message ?: "Failed to load the model")
-            throw LlmException.LoadFailed(e.message ?: "Failed to load the model", e)
+            if (gpuLayers > 0) {
+                Log.w(TAG, "GPU load failed, falling back to CPU", e)
+                gpuGuard.end()
+                gpuGuard.lastFallbackReason = "Loading on the GPU failed (${e.message}), so the CPU is used."
+                gpuLayers = 0
+                try {
+                    loadWith(0)
+                } catch (cpu: IllegalStateException) {
+                    _state.value = EngineState.Error(cpu.message ?: "Failed to load the model")
+                    throw LlmException.LoadFailed(cpu.message ?: "Failed to load the model", cpu)
+                }
+            } else {
+                _state.value = EngineState.Error(e.message ?: "Failed to load the model")
+                throw LlmException.LoadFailed(e.message ?: "Failed to load the model", e)
+            }
         }
 
         handle = newHandle
         loadedConfig = config
         val description = withContext(inferenceDispatcher + NonCancellable) { LlamaNative.describe(newHandle) }
         runtimeInfo = parseRuntimeInfo(description, threads, file)
+        val onGpu = runtimeInfo?.accelerator?.startsWith("GPU") == true
+        if (onGpu) {
+            gpuGuard.lastFallbackReason = null
+            gpuUnverified = true // the guard stays armed until the first generation succeeds
+        } else {
+            gpuUnverified = false
+            if (gpuLayers > 0) gpuGuard.lastFallbackReason = "The GPU could not run this model, so the CPU is used."
+            gpuGuard.end()
+        }
         Log.i(TAG, "Model loaded: $description")
         _state.value = EngineState.Ready(runtimeInfo!!, null)
         return newHandle
@@ -320,7 +382,8 @@ class LocalLlmEngine @Inject constructor(
     private fun ModelConfig.effectiveContext(): Int = resolvedContextSize(deviceResources.memoryInfo().totalMem)
 
     private fun ModelConfig.requiresReload(other: ModelConfig) =
-        contextSize != other.contextSize || useMmap != other.useMmap || quantizeKvCache != other.quantizeKvCache
+        contextSize != other.contextSize || useMmap != other.useMmap || quantizeKvCache != other.quantizeKvCache ||
+            activeModelId != other.activeModelId || gpuOffload != other.gpuOffload
 
     /**
      * Weights are memory-mapped, so part of the file can be paged out under pressure; the KV cache
@@ -410,6 +473,10 @@ class LocalLlmEngine @Inject constructor(
             kvCacheType = str("kvCacheType") ?: "f16",
             sizeBytes = obj?.get("sizeBytes")?.jsonPrimitive?.longOrNull ?: file.length(),
             parameterCount = obj?.get("parameters")?.jsonPrimitive?.longOrNull ?: 0L,
+            accelerator = obj?.get("gpuLayers")?.jsonPrimitive?.intOrNull?.takeIf { it > 0 }?.let { layers ->
+                val device = str("gpuDevice").orEmpty().substringAfter('(', "").removeSuffix(")").ifBlank { str("gpuDevice").orEmpty() }
+                "GPU · ${device.ifBlank { "Vulkan" }} · $layers layers"
+            } ?: "CPU",
         )
     }
 
@@ -417,6 +484,8 @@ class LocalLlmEngine @Inject constructor(
         const val TAG = "LocalLlmEngine"
         const val NATIVE_STACK_BYTES = 16L * 1024 * 1024
         const val N_BATCH = 512
+        /** More than any supported model has: offload every layer. */
+        const val GPU_ALL_LAYERS = 99
         const val QWEN3_1_7B_KV_BYTES_PER_TOKEN = 114_688L // 28 layers x 8 KV heads x 128 x (K+V) x f16
         const val COMPUTE_BUFFER_BYTES = 160L * 1024 * 1024
         const val SAFETY_MARGIN_BYTES = 128L * 1024 * 1024

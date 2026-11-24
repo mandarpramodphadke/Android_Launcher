@@ -62,14 +62,84 @@ elseif(DEFINED ANDROID_ABI)
     message(FATAL_ERROR "Unsupported ABI: ${ANDROID_ABI} (expected arm64-v8a or x86_64)")
 endif()
 
+# ---------------------------------------------------------------------------------------------
+#  Optional GPU offload: the ggml Vulkan backend (arm64-v8a only)
+#
+#  Built as libggml-vulkan.so next to the CPU variants and loaded by the engine only when the user
+#  turns on "GPU Offload (Vulkan)", so phones with fragile drivers never initialise Vulkan.
+#  Needs Vulkan-Hpp and SPIRV headers (pinned tags below, or local checkouts via
+#  -DVULKAN_HEADERS_DIR / -DSPIRV_HEADERS_DIR, Gradle: vulkan.headers.dir / spirv.headers.dir),
+#  the NDK's glslc, and a host C++ compiler for ggml's shader generator.
+# ---------------------------------------------------------------------------------------------
+option(AILAUNCHER_VULKAN "Build the ggml Vulkan backend for optional GPU offload (arm64-v8a)" ON)
+set(VULKAN_HEADERS_DIR "" CACHE PATH "Optional Vulkan-Headers checkout (provides vulkan.hpp)")
+set(SPIRV_HEADERS_DIR "" CACHE PATH "Optional SPIRV-Headers checkout")
+set(VULKAN_HEADERS_GIT_TAG "v1.4.369" CACHE STRING "Vulkan-Headers tag")
+set(SPIRV_HEADERS_GIT_TAG "vulkan-sdk-1.4.363.0" CACHE STRING "SPIRV-Headers tag")
+
+if(ANDROID_ABI STREQUAL "arm64-v8a" AND AILAUNCHER_VULKAN)
+    include(FetchContent)
+    if(NOT VULKAN_HEADERS_DIR)
+        # SOURCE_SUBDIR points nowhere: download only, never add_subdirectory().
+        FetchContent_Declare(vulkan_headers
+            GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+            GIT_TAG ${VULKAN_HEADERS_GIT_TAG}
+            GIT_SHALLOW TRUE
+            SOURCE_SUBDIR do-not-add)
+        FetchContent_MakeAvailable(vulkan_headers)
+        set(VULKAN_HEADERS_DIR "${vulkan_headers_SOURCE_DIR}")
+    endif()
+    if(NOT SPIRV_HEADERS_DIR)
+        FetchContent_Declare(spirv_headers
+            GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+            GIT_TAG ${SPIRV_HEADERS_GIT_TAG}
+            GIT_SHALLOW TRUE
+            SOURCE_SUBDIR do-not-add)
+        FetchContent_MakeAvailable(spirv_headers)
+        set(SPIRV_HEADERS_DIR "${spirv_headers_SOURCE_DIR}")
+    endif()
+    if(NOT EXISTS "${VULKAN_HEADERS_DIR}/include/vulkan/vulkan.hpp")
+        message(FATAL_ERROR "VULKAN_HEADERS_DIR=${VULKAN_HEADERS_DIR} has no include/vulkan/vulkan.hpp")
+    endif()
+    if(NOT EXISTS "${SPIRV_HEADERS_DIR}/include/spirv/unified1/spirv.hpp")
+        message(FATAL_ERROR "SPIRV_HEADERS_DIR=${SPIRV_HEADERS_DIR} has no include/spirv/unified1/spirv.hpp")
+    endif()
+
+    # FindVulkan: headers from Vulkan-Headers (C and C++ in one consistent version), the loader
+    # stub from the NDK sysroot (libvulkan.so is part of every Android 7+ device), glslc from the NDK.
+    set(Vulkan_INCLUDE_DIR "${VULKAN_HEADERS_DIR}/include" CACHE PATH "" FORCE)
+    find_library(AILAUNCHER_VULKAN_LIBRARY vulkan REQUIRED)
+    set(Vulkan_LIBRARY "${AILAUNCHER_VULKAN_LIBRARY}" CACHE FILEPATH "" FORCE)
+    file(GLOB AILAUNCHER_GLSLC "${ANDROID_NDK}/shader-tools/*/glslc" "${ANDROID_NDK}/shader-tools/*/glslc.exe")
+    if(NOT AILAUNCHER_GLSLC)
+        message(FATAL_ERROR "glslc not found in ${ANDROID_NDK}/shader-tools (needed for the Vulkan backend)")
+    endif()
+    list(GET AILAUNCHER_GLSLC 0 AILAUNCHER_GLSLC)
+    set(Vulkan_GLSLC_EXECUTABLE "${AILAUNCHER_GLSLC}" CACHE FILEPATH "" FORCE)
+
+    # ggml-vulkan asks for find_package(SPIRV-Headers CONFIG); provide a minimal config package.
+    set(AILAUNCHER_SPIRV_CONFIG_DIR "${CMAKE_CURRENT_BINARY_DIR}/spirv-headers-config")
+    file(WRITE "${AILAUNCHER_SPIRV_CONFIG_DIR}/SPIRV-HeadersConfig.cmake"
+        "if(NOT TARGET SPIRV-Headers::SPIRV-Headers)\n"
+        "  add_library(SPIRV-Headers::SPIRV-Headers INTERFACE IMPORTED)\n"
+        "  set_target_properties(SPIRV-Headers::SPIRV-Headers PROPERTIES INTERFACE_INCLUDE_DIRECTORIES \"${SPIRV_HEADERS_DIR}/include\")\n"
+        "endif()\n")
+    set(SPIRV-Headers_DIR "${AILAUNCHER_SPIRV_CONFIG_DIR}" CACHE PATH "" FORCE)
+
+    set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+    message(STATUS "GPU offload: Vulkan backend enabled (glslc: ${Vulkan_GLSLC_EXECUTABLE})")
+else()
+    set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+endif()
+
 # ggml builds dynamically loadable backends as MODULE libraries, but the Android Gradle Plugin only
-# packages SHARED_LIBRARY targets into the APK. Without this shim the CPU variants are compiled yet
-# silently left out of the app, and ggml finds no CPU backend at runtime. Building them as SHARED
-# keeps the exact same file names (libggml-cpu-<variant>.so) that ggml_backend_load_all_from_path()
-# scans for.
+# packages SHARED_LIBRARY targets into the APK. Without this shim the CPU variants (and the Vulkan
+# backend) are compiled yet silently left out of the app, and ggml finds no backend at runtime.
+# Building them as SHARED keeps the exact file names (libggml-cpu-<variant>.so, libggml-vulkan.so)
+# that the engine's backend loader looks for.
 function(add_library name)
     set(args ${ARGN})
-    if(args AND name MATCHES "^ggml-cpu")
+    if(args AND name MATCHES "^ggml-(cpu|vulkan)")
         list(GET args 0 lib_type)
         if(lib_type STREQUAL "MODULE")
             list(REMOVE_AT args 0)

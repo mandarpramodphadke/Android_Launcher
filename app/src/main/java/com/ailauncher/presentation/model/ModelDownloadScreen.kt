@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Memory
@@ -33,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -107,6 +109,10 @@ fun ModelDownloadScreen(
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            if (state.options.size > 1) {
+                ModelChooser(state, onSelect = viewModel::select, onDelete = viewModel::deleteOption)
+            }
 
             DeviceCheck(
                 totalRam = context.formatBytes(state.totalRamBytes),
@@ -217,6 +223,55 @@ fun ModelDownloadScreen(
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** The model switcher: Qwen3 0.6B / 1.7B / 4B and any imported GGUF files. */
+@Composable
+private fun ModelChooser(state: ModelSetupUiState, onSelect: (String) -> Unit, onDelete: (String) -> Unit) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Choose a model", style = MaterialTheme.typography.titleMedium)
+        state.options.forEach { option ->
+            val spec = option.spec
+            Card(
+                onClick = { onSelect(spec.id) },
+                colors = CardDefaults.cardColors(
+                    containerColor = if (option.active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = option.active, onClick = { onSelect(spec.id) })
+                    Column(Modifier.weight(1f)) {
+                        Text(spec.displayName, style = MaterialTheme.typography.titleSmall)
+                        if (spec.summary.isNotBlank()) {
+                            Text(spec.summary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        val status = when (val file = option.state) {
+                            is ModelFileState.Ready -> "Downloaded · ${context.formatBytes(file.sizeBytes)}"
+                            is ModelFileState.Downloading -> "Downloading ${(file.fraction * 100).toInt()}%"
+                            is ModelFileState.Paused -> "Paused · ${context.formatBytes(file.downloadedBytes)} of ${context.formatBytes(file.totalBytes)}"
+                            is ModelFileState.Verifying -> "Verifying…"
+                            is ModelFileState.Importing -> "Importing…"
+                            is ModelFileState.Failed -> "Download failed"
+                            ModelFileState.Missing -> "Not downloaded · ${context.formatBytes(spec.sizeBytes)}"
+                        }
+                        Text(status, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        if (state.tooBigFor(spec)) {
+                            Text(
+                                "Needs about ${context.formatBytes(spec.recommendedRamBytes)} of RAM; this phone has ${context.formatBytes(state.totalRamBytes)}.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    if (spec.imported || (option.state is ModelFileState.Ready && !option.active)) {
+                        IconButton(onClick = { onDelete(spec.id) }) { Icon(Icons.Rounded.Delete, "Delete ${spec.displayName}") }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -14,6 +14,10 @@
 
 #include "ggml-backend.h"
 
+#include <dirent.h>
+#include <dlfcn.h>
+#include <unistd.h>
+
 namespace ailauncher {
 namespace {
 
@@ -175,16 +179,89 @@ size_t Utf8CompletePrefixLength(const std::string& bytes) {
 // =============================================================================================
 //  Process-wide
 // =============================================================================================
+namespace {
+
+std::string g_backend_dir;  // written once by InitBackends
+
+bool HasDeviceOfType(enum ggml_backend_dev_type type) {
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        if (ggml_backend_dev_type(ggml_backend_dev_get(i)) == type) return true;
+    }
+    return false;
+}
+
+ggml_backend_dev_t FirstGpuDevice() {
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        const auto type = ggml_backend_dev_type(dev);
+        if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) return dev;
+    }
+    return nullptr;
+}
+
+// Loads the highest-scoring libggml-cpu-*.so of `dir` (the variant ggml_backend_load_all() would
+// pick: armv8.0 baseline ... armv9 SVE2/SME), without loading any other backend.
+bool LoadBestCpuBackend(const std::string& dir) {
+    DIR* listing = opendir(dir.c_str());
+    if (listing == nullptr) return false;
+    using ScoreFn = int (*)();
+    std::string best_path;
+    int best_score = 0;
+    while (dirent* entry = readdir(listing)) {
+        const std::string name = entry->d_name;
+        const bool cpu_variant = name.rfind("libggml-cpu", 0) == 0 && name.size() > 3 &&
+                                 name.compare(name.size() - 3, 3, ".so") == 0;
+        if (!cpu_variant) continue;
+        const std::string path = dir + "/" + name;
+        void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (handle == nullptr) continue;
+        auto score_fn = reinterpret_cast<ScoreFn>(dlsym(handle, "ggml_backend_score"));
+        const int score = score_fn != nullptr ? score_fn() : 0;  // 0 = not supported on this CPU
+        dlclose(handle);
+        if (score > best_score) {
+            best_score = score;
+            best_path = path;
+        }
+    }
+    closedir(listing);
+    return !best_path.empty() && ggml_backend_load(best_path.c_str()) != nullptr;
+}
+
+std::string DeviceLabel(ggml_backend_dev_t dev) {
+    if (dev == nullptr) return "";
+    std::string label = ggml_backend_dev_name(dev);
+    const char* description = ggml_backend_dev_description(dev);
+    if (description != nullptr && *description != '\0') label += std::string(" (") + description + ")";
+    return label;
+}
+
+}  // namespace
+
 void LlmEngine::InitBackends(const std::string& backend_dir) {
     static std::once_flag once;
     std::call_once(once, [&backend_dir] {
-        if (!backend_dir.empty()) {
-            ggml_backend_load_all_from_path(backend_dir.c_str());
-        } else {
-            ggml_backend_load_all();
+        g_backend_dir = backend_dir;
+        // Single-library builds (x86_64) register their CPU backend statically.
+        if (!HasDeviceOfType(GGML_BACKEND_DEVICE_TYPE_CPU)) {
+            const bool loaded = !backend_dir.empty() && LoadBestCpuBackend(backend_dir);
+            if (!loaded) {
+                // Last resort: let ggml scan for anything usable.
+                if (!backend_dir.empty()) ggml_backend_load_all_from_path(backend_dir.c_str());
+                else ggml_backend_load_all();
+            }
         }
         llama_backend_init();
     });
+}
+
+std::string LlmEngine::EnableGpuBackend() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        if (FirstGpuDevice() != nullptr || g_backend_dir.empty()) return;
+        const std::string path = g_backend_dir + "/libggml-vulkan.so";
+        if (access(path.c_str(), R_OK) == 0) ggml_backend_load(path.c_str());
+    });
+    return DeviceLabel(FirstGpuDevice());
 }
 
 std::string LlmEngine::SystemInfo() {
@@ -214,7 +291,13 @@ std::unique_ptr<LlmEngine> LlmEngine::Load(const LoadParams& params,
     g_stop_requested.store(false, std::memory_order_relaxed);
 
     llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers = 0;  // CPU inference; ggml selects the best CPU variant at runtime
+    // CPU unless GPU offload was requested and a Vulkan device is registered. An explicit, empty
+    // device list keeps llama.cpp from touching any GPU on the CPU path.
+    static ggml_backend_dev_t kNoDevices[1] = {nullptr};
+    ggml_backend_dev_t gpu = params.n_gpu_layers > 0 ? FirstGpuDevice() : nullptr;
+    ggml_backend_dev_t gpu_devices[2] = {gpu, nullptr};
+    mp.devices = gpu != nullptr ? gpu_devices : kNoDevices;
+    mp.n_gpu_layers = gpu != nullptr ? params.n_gpu_layers : 0;
     mp.load_mode = params.use_mmap ? LLAMA_LOAD_MODE_MMAP : LLAMA_LOAD_MODE_NONE;
     if (progress) {
         mp.progress_callback = [](float value, void* user_data) -> bool {
@@ -267,6 +350,10 @@ std::unique_ptr<LlmEngine> LlmEngine::Load(const LoadParams& params,
     engine->batch_ = llama_batch_ext_init(ctx);
     engine->n_batch_ = static_cast<int32_t>(llama_n_batch(ctx));
     engine->kv_quantized_ = kv_quantized;
+    if (gpu != nullptr) {
+        engine->gpu_layers_ = std::min<int32_t>(params.n_gpu_layers, llama_model_n_layer(model) + 1);
+        engine->gpu_device_ = DeviceLabel(gpu);
+    }
     if (engine->batch_ == nullptr) {
         if (error) *error = "Failed to allocate batch";
         return nullptr;
@@ -539,6 +626,8 @@ std::string LlmEngine::Describe() const {
        << "\"batch\":" << n_batch_ << ","
        << "\"threads\":" << llama_n_threads(ctx_) << ","
        << "\"kvCacheType\":\"" << (kv_quantized_ ? "q8_0" : "f16") << "\","
+       << "\"gpuLayers\":" << gpu_layers_ << ","
+       << "\"gpuDevice\":\"" << JsonEscape(gpu_device_) << "\","
        << "\"cachedTokens\":" << kv_tokens_.size()
        << "}";
     return os.str();

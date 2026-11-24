@@ -9,6 +9,7 @@ import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
+import com.ailauncher.domain.model.ModelOption
 import com.ailauncher.domain.model.ModelSpec
 import com.ailauncher.domain.model.Reminder
 import com.ailauncher.domain.model.ToolInvocation
@@ -115,19 +116,38 @@ interface AuthRepository {
     suspend fun signOut()
 }
 
+/**
+ * The on-device models: a small catalog (Qwen3 0.6B / 1.7B / 4B) plus GGUF files the user imported.
+ * Exactly one is active ([spec], persisted as ModelConfig.activeModelId); [fileState],
+ * [readyModelFile] and the download controls refer to the active model.
+ */
 interface ModelRepository {
+    /** The active model (the default until settings are read). */
     val spec: ModelSpec
     val fileState: Flow<ModelFileState>
 
-    /** The model file if it is fully present on disk. */
+    /** Built-in downloadable models. */
+    val catalog: List<ModelSpec>
+    /** Catalog plus imported models, each with its own state, for the model switcher. */
+    val options: Flow<List<ModelOption>>
+
+    /** The active model file if it is fully present on disk. */
     fun readyModelFile(): File?
+    /** Like [readyModelFile], but waits for the persisted choice of model first. */
+    suspend fun activeModelFile(): File?
     fun startDownload()
     fun pauseDownload()
     fun cancelDownload()
 
-    /** Copies a user-picked `.gguf` (content URI string) into app storage. */
+    /** Makes [id] the active model (it may still need downloading). */
+    suspend fun select(id: String)
+
+    /** Copies a user-picked `.gguf` (content URI string) into app storage and makes it active. */
     suspend fun importFrom(uri: String): Result<Unit>
+    /** Deletes the active model's file. */
     suspend fun deleteModel()
+    /** Deletes any model's file (imported models disappear from the list). */
+    suspend fun delete(id: String)
 }
 
 data class BackupSummary(

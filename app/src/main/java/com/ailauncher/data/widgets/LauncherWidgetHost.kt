@@ -1,5 +1,6 @@
 package com.ailauncher.data.widgets
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
@@ -87,7 +88,8 @@ class LauncherWidgetHost @Inject constructor(
     fun needsConfiguration(appWidgetId: Int): Boolean {
         val info = info(appWidgetId) ?: return false
         if (info.configure == null) return false
-        val optional = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+        // "Configuration optional" widgets (Android 12+) can be placed with their defaults.
+        val optional = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (info.widgetFeatures and AppWidgetProviderInfo.WIDGET_FEATURE_CONFIGURATION_OPTIONAL) != 0
         return !optional
     }
@@ -188,6 +190,9 @@ class LauncherAppWidgetHostView(context: Context) : AppWidgetHostView(context) {
         return longPressed
     }
 
+    // Clicks are left to super.onTouchEvent (which calls performClick); the only event consumed
+    // here is the end of a long press, which is not a click.
+    @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
             cancelLongPress()

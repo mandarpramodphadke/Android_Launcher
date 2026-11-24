@@ -8,7 +8,10 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
+import com.ailauncher.data.notifications.NotificationDigestRepositoryImpl
 import com.ailauncher.data.packages.AppIconFetcher
+import com.ailauncher.data.packages.ShortcutIconFetcher
+import com.ailauncher.data.packages.ShortcutRepositoryImpl
 import com.ailauncher.data.packages.PackageChangeReceiver
 import com.ailauncher.data.packages.PackageRepository
 import com.ailauncher.data.reminders.Notifications
@@ -32,6 +35,8 @@ class AiLauncherApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject lateinit var chatRepository: ChatRepository
     @Inject lateinit var reminderRepository: ReminderRepository
     @Inject lateinit var llmEngine: LlmEngine
+    @Inject lateinit var shortcutRepository: ShortcutRepositoryImpl
+    @Inject lateinit var notificationDigest: NotificationDigestRepositoryImpl
 
     @Inject @ApplicationScope
     lateinit var appScope: CoroutineScope
@@ -70,6 +75,7 @@ class AiLauncherApp : Application(), Configuration.Provider, SingletonImageLoade
             packageRepository.sync() // catch up on changes made while the process was dead
             packageRepository.ensureDefaultDock()
             reminderRepository.rescheduleAll()
+            notificationDigest.purgeExpired()
         }
     }
 
@@ -83,6 +89,9 @@ class AiLauncherApp : Application(), Configuration.Provider, SingletonImageLoade
             .components {
                 add(AppIconFetcher.Factory(packageManager))
                 add(AppIconFetcher.Key())
+                // Long-press menu shortcut icons (LauncherApps.getShortcutIconDrawable).
+                add(ShortcutIconFetcher.Factory(shortcutRepository))
+                add(ShortcutIconFetcher.Key())
             }
             .memoryCache {
                 MemoryCache.Builder().maxSizePercent(context, 0.15).build()

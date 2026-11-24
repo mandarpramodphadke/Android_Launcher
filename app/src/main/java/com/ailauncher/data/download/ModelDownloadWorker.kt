@@ -42,7 +42,8 @@ class ModelDownloadWorker @AssistedInject constructor(
     private val okHttpClient: OkHttpClient,
 ) : CoroutineWorker(appContext, params) {
 
-    private val spec: ModelSpec = ModelCatalog.DEFAULT
+    /** The catalog model this job downloads (see [inputFor]). */
+    private val spec: ModelSpec = ModelCatalog.byId(params.inputData.getString(KEY_MODEL_ID)) ?: ModelCatalog.DEFAULT
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val dir = modelsDir(applicationContext)
@@ -185,6 +186,9 @@ class ModelDownloadWorker @AssistedInject constructor(
         const val KEY_TOTAL = "total"
         const val KEY_SPEED = "speed"
         const val KEY_ERROR = "error"
+        const val KEY_MODEL_ID = "model_id"
+        /** Work tag naming the model a download belongs to. */
+        const val TAG_MODEL_PREFIX = "model:"
         const val PHASE_DOWNLOADING = "downloading"
         const val PHASE_VERIFYING = "verifying"
         private const val MAX_ATTEMPTS = 8
@@ -193,6 +197,8 @@ class ModelDownloadWorker @AssistedInject constructor(
         private const val FREE_SPACE_MARGIN = 64L * 1024 * 1024
 
         fun modelsDir(context: Context): File = File(context.filesDir, "models").apply { mkdirs() }
+
+        fun inputFor(spec: ModelSpec) = workDataOf(KEY_MODEL_ID to spec.id)
 
         /**
          * Bytes the app can allocate in [dir], including cached data the system would clear for us

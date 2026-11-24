@@ -39,6 +39,35 @@
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- ===================================================================================== -->
+    <!-- v2 offline tools. Every permission below is optional, requested only when the user     -->
+    <!-- asks for the feature, and the data it unlocks never leaves the device.                -->
+    <!-- ===================================================================================== -->
+    <!-- list_unused_apps and suggested apps: last-used times (special access, granted in Settings). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- find_largest_files / query_files_by_activity: MediaStore. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Optional "All files access" so documents and archives (PDF, ZIP) can be found too. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- contact_action: find the contact; CALL_PHONE places the call directly (else the dialer opens). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+    <!-- Private Space (hidden apps) unlocks with BiometricPrompt. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- ===================================================================================== -->
     <!-- Package visibility (Android 11+).                                                    -->
     <!-- ===================================================================================== -->
     <queries>
@@ -76,6 +105,18 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
+        <!-- Widget providers for the widget picker (some ship without a launcher activity). -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
+        <!-- Opening and sharing files found by the file tools. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <!-- contact_action: WhatsApp messages. -->
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
         <provider android:authorities="com.android.calendar" />
     </queries>
 
@@ -85,6 +126,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
+        android:requestLegacyExternalStorage="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -114,6 +156,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- "Share → AI Launcher": text and PDFs open in the on-device assistant. -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
 
@@ -166,6 +215,21 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Opt-in notification digest: unread badges, OTP / meeting / tracking pills and the
+             summarize_notifications tool. Entries stay on-device and are purged after 24 h. -->
+        <service
+            android:name=".data.notifications.AiNotificationListener"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations|alerting" />
         </service>
 
         <!-- WorkManager foreground service used by the model downloader (Android 14+ requires

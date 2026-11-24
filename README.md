@@ -1,9 +1,11 @@
 # AI Launcher
 
-An offline-first Android home-screen launcher with a private on-device assistant. **Qwen3-1.7B**
-(GGUF, Q4_K_M) runs locally through **llama.cpp** via JNI. It sorts your apps into smart categories,
-sets alarms, timers and reminders, opens apps, toggles device settings and answers questions.
-Inference never uses the network.
+An offline-first Android home-screen launcher with a private on-device assistant. **Qwen3**
+(0.6B, 1.7B or 4B, GGUF Q4_K_M) runs locally through **llama.cpp** via JNI, on the CPU or
+optionally the GPU (Vulkan). It sorts your apps into smart categories, sets alarms, timers and
+reminders, opens apps and folders, manages your to-dos and day plan, finds large or forgotten
+files, spots unused apps, summarizes notifications, calls and messages contacts, and answers
+questions. Inference never uses the network, and no user data is ever sent anywhere.
 
 Built with Kotlin, Jetpack Compose (Material 3), MVVM + Clean Architecture, Hilt, Room, DataStore,
 WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and optional Firebase.
@@ -12,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.2](#whats-new-in-12)
 1. [Features](#features)
 2. [Architecture](#architecture)
 3. [Getting started](#getting-started)
@@ -26,15 +29,62 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ---
 
+## What's new in 1.2
+
+An incremental update of the 1.1 code base: every existing feature, tool contract and test is kept.
+
+- **One text field everywhere.** `LauncherTextField` / `LauncherCommandBar` (`BasicTextField` +
+  `TextFieldState`) replace every input: home command bar, drawer search, chat, folder name and
+  description, to-do and planner editors, rename and backup passphrase dialogs. The placeholder
+  shows only while the field is empty *and* unfocused, never wraps, and there is a one-tap clear.
+  **Cursor fix:** the cursor used to trail behind the letter just typed because each keystroke made
+  a round trip through a ViewModel `StateFlow`; the text state now lives in the ViewModel as a
+  `TextFieldState` that the field edits synchronously, and search reads it through `snapshotFlow`.
+- **Multi-page home** (`HorizontalPager`) with a page indicator above the dock, add / remove /
+  reorder pages, and Home snapping back to page 1. Apps, folders and **widgets** are placed on a
+  4- or 5-column grid (`HomeItemEntity`); widgets come from a searchable, grouped picker, go through
+  the system bind and configure flows, and can be resized or removed after a long-press.
+- **Custom folders** with a name, a purpose ("apps for my job") and an accent colour: a drawer tab,
+  folders on home pages or in the dock, and "open my Work folder" from the assistant.
+- **Motion:** apps open with a clip-reveal from the tapped icon; the drawer follows your finger and
+  settles on a low-bounce spring behind a scrim; the command bar morphs into the chat input
+  (`SharedTransitionLayout`); a 160 ms dim/scale-out precedes double-tap lock, and the clock,
+  pages, dock and command bar spring back in one after another on unlock.
+- **Seven new offline tools:** `list_unused_apps`, `find_largest_files`,
+  `query_files_by_activity`, `manage_todo`, `manage_planner`, `summarize_notifications`,
+  `contact_action`, plus a **To-dos & Daily Planner** screen and planner blocks / urgent to-dos in
+  `get_today_agenda`.
+- **On-device context:** an opt-in notification digest (badges, one-tap OTP / meeting / parcel
+  pills, deleted after 24 h), "Share → AI Launcher" for text and PDFs, clipboard suggestions when
+  you focus the command bar, five predicted apps in the drawer, app shortcuts in the long-press
+  menu, and a biometric **Private Space** for hidden apps.
+- **Model switcher** (Qwen3 0.6B / 1.7B / 4B, or any imported `.gguf`) and optional **GPU offload
+  (Vulkan)** with an automatic CPU fallback.
+
+---
+
 ## Features
 
 ### Launcher
 - **Real HOME app**: `MAIN`/`HOME`/`DEFAULT` filter, `singleTask` + `stateNotNeeded`, and a transparent
   `Theme.Material3.DayNight.NoActionBar` window with `windowShowWallpaper`, so the live/static
   wallpaper renders natively behind Compose. Settings has a `RoleManager.ROLE_HOME` request button.
-- **Home screen**: minimalist clock and date, a next-alarm/reminder pill, a 5-slot dock, and the
-  **AI Command Bar**. The bar doubles as instant fuzzy app search and offers voice input when an
-  offline recognizer exists.
+- **Home screen**: swipeable pages (page 1 has the clock and date, a next-alarm/reminder pill,
+  notification pills and a to-do/planner glance chip), a page indicator, a 5-slot dock shared by
+  apps and folders, and the **AI Command Bar**. The bar doubles as instant fuzzy app search,
+  offers voice input when an offline recognizer exists, and suggests actions for what is on the
+  clipboard (open link, call, summarize, extract tasks, …) when you focus it.
+- **Pages, grid and widgets**:
+  - 4 or 5 columns; 48–52 dp icons with optional Android 13 themed (monochrome) icons; one-line
+    12 sp labels with a wallpaper shadow
+  - long-press the wallpaper ▸ *Home pages* to add, remove or reorder pages; Home returns to page 1
+  - long-press the wallpaper ▸ *Widgets* for every installed widget grouped by app, with previews
+    and search. `LauncherAppWidgetHost` handles `ACTION_APPWIDGET_BIND`, configuration activities
+    and `startListening`/`stopListening`; long-press a widget for resize handles, page moves and
+    removal
+- **Custom folders**: create from the drawer's *Folders* tab, the home menu or an app's long-press
+  menu (name, description, accent colour, searchable multi-select app list). Open a folder to see
+  its purpose and apps, add/remove apps, edit, pin to the dock, add to a home page or delete it.
 - **Readable on any wallpaper**: text colour follows `WallpaperColors` (or a Light/Dark override)
   and is never relied on alone:
   - every word on the wallpaper carries a halo (dark text) or drop shadow (light text)
@@ -44,20 +94,48 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
   So a wallpaper that is light overall but dark behind the clock no longer hides it. Status-bar
   icon colour is applied when a screen *resumes*, never "restored" when one is disposed, which
   removes the race that left dark icons over dark screens after navigation.
-- **Gestures**: swipe up opens the drawer, swipe down opens notifications, swipe left opens the AI
-  chat, double-tap locks the screen, long-press opens the home menu.
+- **Gestures**: swipe up drags the drawer open, swipe down opens notifications, swipe left past the
+  last page opens the AI chat, double-tap locks the screen (after a 160 ms dim/scale-out), and
+  long-press opens the home menu.
   - Double-tap lock prefers `AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN`, which keeps biometric
     unlock working. It falls back to `DevicePolicyManager.lockNow()`.
-- **App drawer**:
+- **App drawer** (an overlay of the home screen that tracks your finger, with a spring settle and
+  a backdrop scrim):
   - an **A–Z** grid or list with a draggable letter fast-scroller
   - an **AI Smart Categories** view with a live "AI is organizing…" banner
+  - a **Folders** tab, a **Suggested** row of five predicted apps (launch habits with a 7-day
+    half-life, time of day, weekday/weekend, and headphones / Bluetooth / car audio), and unread
+    badges
   - typo-tolerant fuzzy search (prefix, acronym, subsequence, edit distance, Unicode-aware)
   - pull down at the top to close
-- **Long-press menu**: App info, Uninstall, Pin to / Remove from dock (with reordering), Hide,
-  Rename, and Change category (a manual override the AI never replaces).
+- **Long-press menu**: the app's own shortcuts (`LauncherApps.getShortcuts`), Pin to / Remove from
+  dock (with reordering), Add to home screen, Add to folder, Change category (a manual override
+  the AI never replaces), Rename, Move to Private Space, App info and Uninstall.
+- **Private Space**: hidden apps live behind a `BiometricPrompt` (fingerprint, face or the device
+  PIN), in the drawer and in Settings.
+- **App launch animation**: `LauncherApps.startMainActivity` with the icon's bounds and
+  `ActivityOptions.makeClipRevealAnimation` (scale-up fallback).
 - **Live package sync**: a runtime `BroadcastReceiver` (`PACKAGE_ADDED/REMOVED/CHANGED/REPLACED`)
   plus `LauncherApps.Callback`, debounced into one incremental Room sync. New installs trigger
   incremental AI categorization.
+
+### To-dos & Daily Planner
+A screen reachable from the home glance chip, the drawer (search "todo" or the Folders tab) and the
+assistant's result cards. *To-dos*: quick add, lists (Inbox, Errands, …), priorities, due dates,
+overdue / today / upcoming / no-date sections. *Day plan*: a timeline of your time blocks, calendar
+events (read-only, with permission) and free slots between 08:00 and 21:00; tap a free slot to plan
+it. The assistant reads and edits the same data through `manage_todo` and `manage_planner`.
+
+### Notifications, sharing and contacts
+- **Notification digest** (opt-in, with a disclosure first): a `NotificationListenerService` keeps
+  the title and text of recent notifications in Room for 24 hours, on-device only. It powers unread
+  badges, home pills for one-time codes (copy), meeting links (join) and parcel tracking numbers
+  (track), and `summarize_notifications` ("what did I miss?"). Turning it off deletes the data.
+- **Share → AI Launcher**: `text/plain` and `application/pdf` open in the assistant with
+  *Summarize*, *Extract tasks* and *Ask about it*. PDF text is extracted on-device with
+  `PdfRenderer` (Android 15+).
+- **Contacts**: "call mum", "text Sam I'm running late", "WhatsApp Alex" find the contact after a
+  `READ_CONTACTS` check and always show a confirmation card first.
 
 ### Themes & minimal mode
 Settings → Appearance has a live-preview theme picker:
@@ -87,6 +165,12 @@ each theme: 4.5:1 for every text/background pair, 3:1 for icons and outlines. It
 category colours, and the home chips over black, grey and white wallpaper.
 
 ### On-device AI
+- **Model switcher**: Qwen3 **0.6B** (fastest), **1.7B** (recommended) or **4B** (best quality,
+  8 GB+ RAM), all Q4_K_M, or any `.gguf` you import. Each keeps its own download state; switching
+  frees the loaded model and the next request loads the new one.
+- **Processor**: *CPU Only (Safe Default)* or *GPU Offload (Vulkan)*. The Vulkan backend is loaded
+  only when you choose it; if there is no usable GPU, loading fails, or the driver crashes the
+  launcher, the engine falls back to the CPU on its own and Settings says why.
 - **Model onboarding**:
   - a WorkManager foreground (`dataSync`) download from Hugging Face, pinned to a commit
   - progress, speed and ETA, with pause/resume (HTTP `Range`) and SHA-256 verification
@@ -132,27 +216,35 @@ category colours, and the home chips over black, grey and white wallpaper.
 
 ```
 presentation/          Jetpack Compose + ViewModels (MVVM)
-  home/ drawer/ chat/ model/ onboarding/ settings/ components/ navigation/ theme/
+  home/ drawer/ folders/ planner/ chat/ model/ onboarding/ settings/ components/ navigation/ theme/
         │  observes StateFlow / calls use cases & repositories
         ▼
 domain/                Pure Kotlin: no Android framework types
   model/               AppInfo, ChatMessage, ToolInvocation, EngineState, LlmException, …
-  repository/          AppRepository, ChatRepository, ModelRepository, … (interfaces)
+  repository/          AppRepository, ChatRepository, ModelRepository, HomeLayout/Folder/Dock,
+                       Todo/Planner, AppUsage, File, NotificationDigest, Contact, Shortcut (interfaces)
   ai/                  LlmEngine (interface), Qwen3PromptBuilder, ModelOutputParser,
-                       ToolDefinitions, ToolRouter, QuickCommandParser, SystemPrompts
-  usecase/             ChatAgent (agent loop), CategorizeAppsUseCase, HeuristicCategorizer
-  action/              ActionExecutor (interface)
+                       ToolDefinitions, ToolRouter, QuickCommandParser, SystemPrompts,
+                       DateRangeParser, ArgumentGrounding
+  usecase/             ChatAgent (agent loop), CategorizeAppsUseCase, HeuristicCategorizer,
+                       AgendaBuilder, FreeSlots
+  home/ notifications/ clipboard/ suggestions/   HomeGridPlanner, NotificationSmartExtractor,
+                       ClipboardAnalyzer, AppSuggestionRanker (all pure, unit-tested)
+  action/              ActionExecutor, LauncherNavigator (interfaces)
         ▲  implemented by
         │
 data/                  Android implementations
-  llm/                 LocalLlmEngine, LlamaNative (JNI), DeviceResources
-  local/               Room: entities, DAOs, AppDatabase
+  llm/                 LocalLlmEngine, LlamaNative (JNI), DeviceResources, GpuOffloadGuard
+  local/               Room: entities, DAOs, AppDatabase (v2 + Migration1To2)
   preferences/         DataStore settings & model config
-  packages/            PackageRepository, PackageChangeReceiver, Coil AppIconFetcher
+  packages/            PackageRepository, PackageChangeReceiver, Coil icon fetchers, shortcuts
+  home/ widgets/       home layout, folders, dock, LauncherWidgetHost
+  usage/ files/ notifications/ contacts/ productivity/ share/
   auth/ backup/ chat/ reminders/ download/ categorize/ actions/ system/
         │
         ▼ JNI
 app/src/main/cpp/      llama_jni.cpp (JNI bridge) → llm_engine.cpp (C++ engine) → llama.cpp b12651
+                       (+ libggml-vulkan.so on arm64, loaded only for GPU offload)
 ```
 
 **Agent loop (`ChatAgent`)**:
@@ -162,7 +254,8 @@ user text ─► QuickCommandParser ──match──► tool card (no LLM; work
     │
     └─► Qwen3PromptBuilder (ChatML + <tools>) ─► LocalLlmEngine.generate() ── stream ──►
         ModelOutputParser ─► answer │ <think> │ <tool_call> ─► ToolRouter (validate & normalise)
-            ├─ read-only tool (get_today_agenda): run, feed <tool_response>, generate again
+            ├─ read-only tool (agenda, files, unused apps, lists, digest): run, feed
+            │  <tool_response>, generate again; the card shows the full result with buttons
             └─ side-effect tool: confirmation card ─► ActionExecutor ─► Android APIs
 ```
 
@@ -174,8 +267,12 @@ user text ─► QuickCommandParser ──match──► tool card (no LLM; work
 - Android Studio (latest stable) or the command line with **JDK 17+**.
 - Android SDK packages: `platforms;android-37.1`, `ndk;29.0.14206865` (NDK r29), `cmake;3.31.6`.
   Android Studio and AGP install them automatically when their licences are accepted.
-- An arm64 phone with **6 GB+ RAM** recommended. The model needs about 1.4 GB of free RAM while
-  loaded.
+- An arm64 phone with **6 GB+ RAM** recommended. Qwen3-1.7B needs about 1.4 GB of free RAM while
+  loaded (0.6B about 0.7 GB, 4B about 3.2 GB).
+- For the optional Vulkan backend (on by default for arm64): a host C/C++ compiler (gcc or clang,
+  used to build ggml's shader generator) and network access for the first configure, which fetches
+  the pinned Vulkan-Headers and SPIRV-Headers tags. The NDK's `glslc` compiles the shaders. Set
+  `ggml.vulkan=false` for a CPU-only build.
 
 ### Clone & build
 
@@ -199,8 +296,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Then press Home and pick **AI Launcher**, or use *Settings ▸ Make AI Launcher your home app*.
 
-The first native build compiles llama.cpp, seven arm64 CPU variants and the x86_64 emulator
-build, which takes several minutes. Later builds are incremental. Native code is always compiled
+The first native build compiles llama.cpp, seven arm64 CPU variants, the arm64 Vulkan backend
+(about 1,200 compute shaders) and the x86_64 emulator build, which takes a while. Later builds are incremental. Native code is always compiled
 optimised, even for debug builds, because llama.cpp is unusably slow at `-O0`.
 
 #### Where llama.cpp comes from (in order)
@@ -214,6 +311,9 @@ optimised, even for debug builds, because llama.cpp is unusably slow at `-O0`.
 sdk.dir=/path/to/Android/sdk
 google.web.client.id=1234567890-abc.apps.googleusercontent.com
 llama.cpp.dir=/path/to/llama.cpp
+ggml.vulkan=true                                  # false = CPU-only native build
+vulkan.headers.dir=/path/to/Vulkan-Headers        # offline builds; default: fetch tag v1.4.369
+spirv.headers.dir=/path/to/SPIRV-Headers          # default: fetch tag vulkan-sdk-1.4.363.0
 release.store.file=/path/to/release.jks
 release.store.password=…
 release.key.alias=…
@@ -253,10 +353,10 @@ firebase deploy --only firestore:rules
 
 | | |
 |---|---|
-| Model | Qwen3-1.7B, Q4_K_M, 1,107,409,472 bytes, SHA-256 `b139949c…1897` |
-| Source | `huggingface.co/unsloth/Qwen3-1.7B-GGUF`, pinned to commit `d7f544ee`. The official `Qwen/Qwen3-1.7B-GGUF` repo publishes Q8_0 only. |
-| Location | `filesDir/models/qwen3-1.7b-q4_k_m.gguf`. Excluded from cloud backup; included in device-to-device transfer. |
-| Runtime | llama.cpp **b12651**, CPU only, using the `llama_batch_ext` / `llama_process` API |
+| Models | Qwen3-0.6B Q4_K_M (396,705,472 bytes, SHA-256 `ac2d9771…524a`, commit `50968a44`) · **Qwen3-1.7B Q4_K_M (default)** (1,107,409,472 bytes, `b139949c…1897`, commit `d7f544ee`) · Qwen3-4B Q4_K_M (2,497,281,312 bytes, `f6f85177…813a`, commit `22c9fc8a`) |
+| Source | `huggingface.co/unsloth/Qwen3-*-GGUF`, each pinned to a commit. The official Qwen repos publish no Q4_K_M for these sizes. |
+| Location | `filesDir/models/<id>.gguf`, imports in `filesDir/models/imported/`. Excluded from cloud backup; included in device-to-device transfer. |
+| Runtime | llama.cpp **b12651** using the `llama_batch_ext` / `llama_process` API; CPU by default, Vulkan when GPU offload is on |
 
 **Runtime CPU dispatch.** arm64 builds use `GGML_BACKEND_DL` + `GGML_CPU_ALL_VARIANTS`: ggml ships
 seven CPU kernels, from armv8.0 through armv8.2 (dotprod/fp16) and armv8.6 (i8mm) to armv9
@@ -264,8 +364,24 @@ seven CPU kernels, from armv8.0 through armv8.2 (dotprod/fp16) and armv8.6 (i8mm
 kernels and older ones never hit an illegal instruction inside the launcher process.
 
 AGP only packages `SHARED` libraries, so `CMakeLists.txt` builds ggml's `MODULE` backends as
-`SHARED`. `jniLibs.useLegacyPackaging = true` extracts them to `nativeLibraryDir`, where ggml scans
-for them. Without both, the variants are compiled but never shipped.
+`SHARED`. `jniLibs.useLegacyPackaging = true` extracts them to `nativeLibraryDir`, where the engine
+scans for them. Without both, the variants are compiled but never shipped.
+
+**Selective backend loading.** `LlmEngine::InitBackends` scores the `libggml-cpu-*.so` variants and
+loads only the best one; it never touches `libggml-vulkan.so`. `EnableGpuBackend()` loads Vulkan the
+first time a model is loaded with GPU offload on.
+
+**GPU offload (Vulkan, arm64).** With the toggle on, all layers are offloaded (`n_gpu_layers`) to
+the first Vulkan device; on the CPU path an explicit empty device list keeps llama.cpp away from
+the GPU. Fallbacks, all automatic:
+1. no Vulkan device: load on the CPU;
+2. GPU load throws: retry on the CPU;
+3. the driver crashes the process: `GpuOffloadGuard` writes a marker before the GPU load and the
+   first GPU generation; finding it at the next start switches the setting back to CPU only.
+
+The reason is shown under *Settings ▸ On-device AI ▸ Processor*, and the status sheet shows where the
+model runs. The NDK r29 `glslc` lacks cooperative-matrix and integer-dot extensions, so those
+shader variants are skipped at build time (ggml detects this).
 
 **`llm_engine.cpp` features**:
 - **Prefix KV caching.** The longest common token prefix with the previous request is reused.
@@ -303,7 +419,26 @@ use, and grouped `<tool_response>` turns. It is verified against fixtures render
 | `launch_app` | `appName` | fuzzy match → `getLaunchIntentForPackage()` |
 | `toggle_setting` | `wifi` / `bluetooth` / `flashlight` / `dnd`, `state?` | `CameraManager.setTorchMode`, `Settings.Panel`, notification policy |
 | `sort_apps` | none | background categorization (WorkManager) |
-| `get_today_agenda` | none (read-only) | calendar instances + reminders + next alarm, fed back to the model |
+| `get_today_agenda` | none (read-only) | calendar instances + reminders + next alarm + planner blocks + urgent to-dos, fed back to the model |
+| `list_unused_apps` | `inactiveDays?` (default from Settings, 30) | `UsageStatsManager` (with Usage access) merged with the launcher's own launch log; card with Open / Hide / Uninstall |
+| `find_largest_files` | `limit` (15), `fileType` (all, video, image, audio, document, archive) | MediaStore sorted by `SIZE`; card with Open / Share |
+| `query_files_by_activity` | `filterMode` (`unused_since`, `downloaded`, `opened_or_clicked`, `modified_range`), `unusedDays?`, `startDateIso?`, `endDateIso?`, `fileType` | MediaStore (`IS_DOWNLOAD` on 30+) and the launcher's `RecentFileAccessEntity` log |
+| `manage_todo` | `action` (add, complete, delete, list), `title?`, `listName?`, `priority?`, `dueIso?`, `todoId?` | Room `TodoItemEntity` |
+| `manage_planner` | `action` (schedule_block, reschedule, remove_block, get_day_plan), `dateIso?`, `startTime?`, `durationMinutes?`, `title?`, `blockId?` | Room `PlannerBlockEntity` + calendar events + free slots |
+| `summarize_notifications` | `appName?` (read-only) | the opt-in on-device digest (last 24 h) |
+| `contact_action` | `action` (call, sms, whatsapp), `contactName`, `message?` | Contacts provider → `ACTION_CALL` (or `ACTION_DIAL` without `CALL_PHONE`), `smsto:`, WhatsApp |
+
+**Token budget.** The full tool block is ~1,730 tokens, so it is used when the context is ≥ 3072
+tokens. *Auto* context (the new default) is 4096 on phones with 6 GB+ RAM and 2048 otherwise; at
+2048 a compact profile with the original seven tools plus `manage_todo` (~1,060 tokens) keeps
+room for the conversation. The system prompt still contains no clock, so the prefix KV cache keeps
+follow-up turns fast.
+
+**Argument grounding.** Replaying the real model showed slot errors a 1.7B model makes: "tomorrow"
+scheduled for today, "two months" as 2 days, a hallucinated list name. `ArgumentGrounding` lets
+unambiguous dates, times, durations, ranges and list names from the user's own words override the
+model's values. Day-plan questions for another day ("when am I free tomorrow?") are rerouted from
+`get_today_agenda` to `manage_planner(get_day_plan)`.
 
 `ToolRouter` accepts what a 1.7B model actually emits (numbers as strings, `"7:30 pm"`, weekday
 names, relative or absolute times) and validates it strictly. Two fixes came from replaying the
@@ -312,7 +447,8 @@ real model:
 - an absolute `datetime` beats a stray `"in_minutes": 0`.
 
 `QuickCommandParser` handles common commands ("open camera", "timer 5 min", "alarm at 7am",
-"flashlight on") instantly, even before the model is downloaded.
+"flashlight on", "open my Work folder", "add milk to my errands list", "largest videos",
+"what did I miss", "call mum") instantly, even before the model is downloaded.
 
 ---
 
@@ -329,7 +465,13 @@ real model:
 | `ACCESS_NOTIFICATION_POLICY` | Do Not Disturb toggle |
 | `EXPAND_STATUS_BAR` | Swipe-down notification shade fallback |
 | `REQUEST_DELETE_PACKAGES` | Long-press ▸ Uninstall |
-| `<queries>` `MAIN`+`LAUNCHER`, clock intents, … | Package visibility on Android 11+ without `QUERY_ALL_PACKAGES` |
+| `PACKAGE_USAGE_STATS` (special access) | `list_unused_apps` and suggested apps. Optional; the launcher's own launch log is used without it. |
+| `READ_MEDIA_IMAGES` / `_VIDEO` / `_AUDIO` (`READ_EXTERNAL_STORAGE` ≤ 32) | File tools. Requested from the tool card or Settings. |
+| `MANAGE_EXTERNAL_STORAGE` (optional special access) | Include documents and archives in file searches |
+| `READ_CONTACTS`, `CALL_PHONE` | `contact_action`, requested on confirmation. Without `CALL_PHONE` the dialer opens instead. |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` (user-granted) | Opt-in notification digest, after a disclosure. Data stays on-device and is purged after 24 h. |
+| `USE_BIOMETRIC` | Private Space unlock |
+| `<queries>` `MAIN`+`LAUNCHER`, clock intents, widget providers, `VIEW */*`, WhatsApp, … | Package visibility on Android 11+ without `QUERY_ALL_PACKAGES` |
 
 The optional accessibility service is used **only** for the lock-screen and notification-shade
 global actions. It cannot read window content. A prominent disclosure dialog is shown before
@@ -355,11 +497,16 @@ The JVM unit tests cover:
 - theme contrast (WCAG AA for every theme), the wallpaper text-colour logic, and settings
   persistence and migration
 - the exact prompts `ChatAgent` sends; these are exported to `app/build/prompt-fixtures/` for
-  replay
+  replay (one fixture per new tool, plus the full and compact tool prefixes)
+- v2: the Room 1 → 2 migration (Robolectric, from the exported v1 schema), the new tools' routing
+  and argument grounding (including verbatim real-model outputs), quick commands, date-range and
+  day parsing, the notification extractor, clipboard analysis, app suggestions, the home grid
+  planner, the agenda builder, free slots and the model catalog
 
 **Screenshot test.** `ThemeScreenshotTest` uses Robolectric native graphics to render the home
 screen, drawer and theme picker in every theme. The variants are minimal mode, light/dark/banded
-wallpapers, and themed/greyscale icons. It fails on crashes or blank frames and writes PNGs to
+wallpapers, themed/greyscale icons, a second home page, a 5-column grid with a folder and widget
+placeholders, and the drawer's Folders tab. It fails on crashes or blank frames and writes PNGs to
 `app/build/outputs/screenshots/` for review.
 
 **JNI integration test.** `LlamaNativeHostTest` builds the same `llama_jni.cpp` / `llm_engine.cpp`
@@ -390,31 +537,30 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 
 ## Verification performed
 
-All of the following was run while building this project:
+All of the following was run while building this project (1.2.0):
 
-- `assembleDebug` and `assembleRelease` (R8 + resource shrinking, 16 MB APK) succeed with **zero
-  compiler warnings**. `lintDebug` is clean except for the intentional `OldTargetApi`
-  (targetSdk 36).
-- **65 JVM unit tests pass**, including one that renders 23 theme/layout screenshots. The JNI
-  integration test passes against the real Qwen3-1.7B Q4_K_M:
-  - streaming of CJK and emoji text
-  - prefix cache, GBNF grammar, and both cancellation paths
-  - Kotlin exceptions propagating through C++
-- **Release APK**:
-  - all 7 arm64 CPU variants and the x86_64 libraries are packaged
-  - every `.so` is 16 KB page-aligned (Android 15+)
-  - R8 keeps the JNI surface
-  - the merged manifest has the HOME filter, `singleTask` and `extractNativeLibs`
-- **The app's own prompts, replayed through the native engine and real model**, produced correct
-  tool calls: `set_alarm`, `launch_app`, `create_reminder`, and
-  `toggle_setting(flashlight)` (from "it's dark in here, I need some light"). A factual question
-  produced a plain answer, and the agenda follow-up was summarized. Prefix caching cut follow-up
-  prompt evaluation from ~11 s to under 1 s on a 4-thread x86 host, which ran at about 12 tok/s.
+- `assembleRelease` (R8 + resource shrinking, **23.6 MB APK**, up from 16 MB because of the arm64
+  Vulkan backend) and `testDebugUnitTest` succeed with **zero Kotlin compiler warnings**.
+  `lintDebug` is clean except for the intentional `OldTargetApi` (targetSdk 36).
+- **113 JVM unit tests pass** (1 JNI host test skipped unless configured), including the Room 1 → 2
+  migration test, the regression test built from verbatim real-model outputs, and one that renders
+  27 theme/layout screenshots.
+- **Native**: llama.cpp b12651 builds for arm64 with seven CPU variants plus `libggml-vulkan.so`
+  (about 1,200 SPIR-V shaders compiled by the NDK's `glslc`), and CPU-only for x86_64. Every `.so`
+  is 16 KB page-aligned.
+- **The app's own prompts, replayed through the native engine and the real Qwen3-1.7B** (desktop
+  build of the same `llm_engine.cpp`): correct tool choice for alarms, launches, reminders, the
+  flashlight, folders, unused apps, files, to-dos, notifications and contacts. Slot errors the model
+  made ("unused for a month" → 2 days, "tomorrow" → today, an invented list name) are what
+  `ArgumentGrounding` fixes, and those verbatim outputs are a unit test. Prefix caching reuses the
+  1,733-token system and tools block: follow-up prompt evaluation drops from ~19 s to ~1 s on a
+  4-thread x86 host running at about 12 tok/s.
 
 **Not verified here**: running on a physical device or emulator (this build machine has no
-KVM/device). Before shipping, test on real arm64 hardware: home role, gestures, download
-foreground service, reminders after reboot, Google Sign-In with your OAuth clients, and on-device
-tok/s.
+KVM/device, and no GPU). Before shipping, test on real arm64 hardware: home role, gestures,
+widgets (bind and configure flows), the drawer drag, download foreground service, reminders after
+reboot, the notification listener, share sheet, BiometricPrompt, Google Sign-In with your OAuth
+clients, on-device tok/s on CPU, and GPU offload on a few Adreno / Mali / Xclipse devices.
 
 ---
 
@@ -427,8 +573,14 @@ tok/s.
   Play Console. The device-admin fallback may require the PIN instead of biometrics on the next
   unlock.
 - **Model accuracy**: a 1.7B model makes mistakes (e.g. a category or a time). Mitigations include
-  the grammar, `appCategory` and heuristics, router sanity checks, manual overrides, and
-  confirmation before every action.
+  the grammar, `appCategory` and heuristics, router sanity checks, argument grounding, manual
+  overrides, and confirmation before every action. The 0.6B model is noticeably weaker at tools.
+- **GPU offload** depends on the phone's Vulkan driver. It is off by default; some drivers are slower
+  than the CPU for small models, and crashes are handled by switching back to the CPU.
+- **PDF sharing** needs Android 15+ (or SDK extension 13) for on-device text extraction; scanned PDFs
+  have no text to extract.
+- **Widgets** can only be bound after the system's one-time "allow AI Launcher to create widgets"
+  dialog; some OEM widgets refuse third-party launchers.
 - **UI copy is English** and inline in Compose. Moving it to `strings.xml` for localization is a
   follow-up; system-facing strings are already resources.
 - **x86_64** is built for emulators (AVX2) and is slow; arm64 is the target.
@@ -446,6 +598,9 @@ tok/s.
 | 3. Data layer | `data/local` (`AppEntity`, `ChatMessageEntity`, `ReminderEntity`, DAOs, `AppDatabase`), `data/preferences`, `data/auth/GoogleAuthRepository.kt`, `data/packages/PackageRepository.kt` |
 | 4. Domain & AI engine | `data/llm/LocalLlmEngine.kt`, `domain/ai/Qwen3PromptBuilder.kt`, `domain/ai/ModelOutputParser.kt`, `domain/ai/ToolRouter.kt`, `domain/action/ActionExecutor.kt` + `data/actions/AndroidActionExecutor.kt`, `domain/usecase/ChatAgent.kt` |
 | 5. Presentation | `presentation/home/LauncherHomeScreen.kt`, `drawer/AppDrawerScreen.kt`, `chat/AiChatScreen.kt`, `model/ModelDownloadScreen.kt`, `settings/SettingsScreen.kt`, `onboarding/OnboardingScreen.kt` |
+| v2 UI | `components/LauncherTextField.kt`, `LaunchAnimations.kt`, `home/HomeContent.kt`, `HomeGrid.kt`, `HomeSheets.kt`, `HomeEffects.kt`, `folders/`, `planner/`, `drawer/PrivateSpace.kt`, `chat/ToolResultCards.kt`, `navigation/LauncherNavHost.kt` |
+| v2 data & tools | `data/local/AppDatabase.kt` (`Migration1To2`), `data/home/`, `data/widgets/LauncherWidgetHost.kt`, `data/usage/`, `data/files/`, `data/notifications/`, `data/contacts/`, `data/productivity/`, `data/share/`, `data/actions/LauncherToolExecutor.kt`, `domain/ai/ToolDefinitions.kt`, `ToolRouter.kt`, `ArgumentGrounding.kt` |
+| v2 models & GPU | `data/download/ModelCatalog.kt`, `ModelRepositoryImpl.kt`, `data/llm/GpuOffloadGuard.kt`, `cpp/CMakeLists.txt` (Vulkan), `llm_engine.cpp` (`EnableGpuBackend`, `n_gpu_layers`) |
 
 ## License notes
 

@@ -49,8 +49,15 @@ internal object LlamaNative {
         nBatch: Int,
         useMmap: Boolean,
         quantizeKvCache: Boolean,
+        nGpuLayers: Int,
         progress: NativeProgressCallback?,
     ): Long
+
+    /**
+     * Loads the Vulkan backend on first call (only ever when the user enabled GPU offload) and
+     * returns the GPU device name, or "" when there is no usable Vulkan GPU.
+     */
+    @JvmStatic external fun enableGpu(): String
 
     /**
      * Blocking streaming generation. Returns

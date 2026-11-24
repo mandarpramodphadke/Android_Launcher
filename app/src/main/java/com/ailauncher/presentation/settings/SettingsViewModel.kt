@@ -9,21 +9,28 @@ import androidx.lifecycle.viewModelScope
 import com.ailauncher.data.auth.GoogleAuthRepository
 import com.ailauncher.data.backup.BackupCrypto
 import com.ailauncher.data.llm.DeviceResources
+import com.ailauncher.data.llm.GpuOffloadGuard
 import com.ailauncher.data.system.DefaultLauncherHelper
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.data.system.SystemGestureController
 import com.ailauncher.domain.ai.LlmEngine
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.EngineState
+import com.ailauncher.domain.model.FileAccessLevel
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
+import com.ailauncher.domain.model.ModelSpec
 import com.ailauncher.domain.model.UserProfile
 import com.ailauncher.domain.repository.AppRepository
+import com.ailauncher.domain.repository.AppUsageRepository
 import com.ailauncher.domain.repository.BackupRepository
 import com.ailauncher.domain.repository.BackupSummary
 import com.ailauncher.domain.repository.CategorizationScheduler
+import com.ailauncher.domain.repository.ContactRepository
+import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.repository.ModelRepository
+import com.ailauncher.domain.repository.NotificationDigestRepository
 import com.ailauncher.domain.repository.SettingsRepository
 import com.ailauncher.domain.usecase.ChatAgent
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,6 +48,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
@@ -48,6 +56,14 @@ import javax.inject.Inject
 data class SystemStatus(
     val isDefaultLauncher: Boolean = false,
     val lockMethod: LockMethod = LockMethod.NONE,
+    val usageAccess: Boolean = false,
+    val fileAccess: FileAccessLevel = FileAccessLevel.NONE,
+    val contactsAccess: Boolean = false,
+    val notificationListener: Boolean = false,
+    /** libggml-vulkan.so is part of this build (arm64). */
+    val gpuBackendAvailable: Boolean = false,
+    /** Why GPU offload last fell back to the CPU, if it did. */
+    val gpuNotice: String? = null,
 )
 
 data class SettingsUiState(
@@ -62,6 +78,8 @@ data class SettingsUiState(
     val hiddenApps: List<AppInfo> = emptyList(),
     val performanceCores: Int = 4,
     val busy: Boolean = false,
+    /** The model the assistant uses. */
+    val activeModel: ModelSpec? = null,
 )
 
 @HiltViewModel
@@ -78,6 +96,11 @@ class SettingsViewModel @Inject constructor(
     private val gestures: SystemGestureController,
     modelRepository: ModelRepository,
     deviceResources: DeviceResources,
+    private val usage: AppUsageRepository,
+    private val files: FileRepository,
+    private val contacts: ContactRepository,
+    private val notifications: NotificationDigestRepository,
+    private val gpuGuard: GpuOffloadGuard,
 ) : ViewModel() {
 
     private val system = MutableStateFlow(SystemStatus())
@@ -88,11 +111,11 @@ class SettingsViewModel @Inject constructor(
 
     val uiState: StateFlow<SettingsUiState> = combine(
         combine(auth.profile, settingsRepository.launcherSettings, settingsRepository.modelConfig, ::Triple),
-        combine(llm.state, modelRepository.fileState, ::Pair),
+        combine(llm.state, modelRepository.fileState, modelRepository.options, ::Triple),
         system,
         hiddenApps,
         busy,
-    ) { (profile, settings, config), (engine, file), sys, hidden, isBusy ->
+    ) { (profile, settings, config), (engine, file, options), sys, hidden, isBusy ->
         SettingsUiState(
             profile = profile,
             googleSignInConfigured = auth.isGoogleSignInConfigured,
@@ -105,6 +128,7 @@ class SettingsViewModel @Inject constructor(
             hiddenApps = hidden,
             performanceCores = cores,
             busy = isBusy,
+            activeModel = options.firstOrNull { it.active }?.spec,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -113,7 +137,44 @@ class SettingsViewModel @Inject constructor(
 
     /** Re-read system state that can change while we are in another Settings app. */
     fun refreshSystemStatus() {
-        system.value = SystemStatus(isDefaultLauncher = defaultLauncher.isDefaultLauncher, lockMethod = gestures.lockMethod)
+        system.value = SystemStatus(
+            isDefaultLauncher = defaultLauncher.isDefaultLauncher,
+            lockMethod = gestures.lockMethod,
+            usageAccess = usage.hasUsageAccess(),
+            fileAccess = files.accessLevel(),
+            contactsAccess = contacts.hasPermission(),
+            notificationListener = notifications.hasListenerAccess(),
+            gpuBackendAvailable = File(context.applicationInfo.nativeLibraryDir, "libggml-vulkan.so").exists(),
+            gpuNotice = gpuGuard.lastFallbackReason,
+        )
+    }
+
+    /** Turning the digest off also deletes everything it stored. */
+    fun setNotificationDigest(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateLauncherSettings { it.copy(notificationDigestEnabled = enabled) }
+            if (!enabled) {
+                notifications.clear()
+                _messages.send("Notification digest off. Its data was deleted")
+            }
+        }
+    }
+
+    fun showMessage(text: String) {
+        _messages.trySend(text)
+    }
+
+    fun clearNotificationDigest() {
+        viewModelScope.launch {
+            notifications.clear()
+            _messages.send("Notification digest cleared")
+        }
+    }
+
+    fun setGpuOffload(enabled: Boolean) {
+        if (enabled) gpuGuard.lastFallbackReason = null
+        viewModelScope.launch { settingsRepository.updateModelConfig { it.copy(gpuOffload = enabled) } }
+        refreshSystemStatus()
     }
 
     fun defaultLauncherIntent(): Intent = defaultLauncher.requestIntent()

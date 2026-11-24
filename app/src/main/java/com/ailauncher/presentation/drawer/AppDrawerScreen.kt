@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -32,31 +33,32 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ViewList
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SortByAlpha
-import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,152 +68,114 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ailauncher.domain.model.AppInfo
+import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DrawerLayout
 import com.ailauncher.domain.model.DrawerTab
-import com.ailauncher.presentation.components.AppActionsSheet
 import com.ailauncher.presentation.components.AppGridTile
 import com.ailauncher.presentation.components.AppListRow
-import com.ailauncher.presentation.components.ThemedSystemBarIcons
+import com.ailauncher.presentation.components.FolderIcon
+import com.ailauncher.presentation.components.LauncherTextField
 import com.ailauncher.presentation.theme.LocalLauncherStyle
 import kotlinx.coroutines.launch
 
-@Composable
-fun AppDrawerScreen(
-    onClose: () -> Unit,
-    onOpenSettings: () -> Unit,
-    viewModel: AppDrawerViewModel = hiltViewModel(),
-) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val minimal = LocalLauncherStyle.current.minimal
-    // Minimal mode is text-only, which only the list layout can show.
-    val state = if (minimal) uiState.copy(layout = DrawerLayout.LIST) else uiState
-    val snackbar = remember { SnackbarHostState() }
-    var sheetApp by remember { mutableStateOf<AppInfo?>(null) }
-    val closeDrawer by rememberUpdatedState(onClose)
+/** What the drawer can ask for; wired up by the home screen, which hosts the drawer as an overlay. */
+class DrawerCallbacks(
+    val onLaunch: (AppInfo, Rect) -> Unit = { _, _ -> },
+    val onLongPress: (AppInfo) -> Unit = {},
+    val onToggleLayout: () -> Unit = {},
+    val onOpenSettings: () -> Unit = {},
+    val onSelectTab: (DrawerTab) -> Unit = {},
+    val onOrganize: () -> Unit = {},
+    val onOpenFolder: (CustomFolder) -> Unit = {},
+    val onCreateFolder: () -> Unit = {},
+    val onOpenPrivateSpace: () -> Unit = {},
+    val onOpenPlanner: () -> Unit = {},
+)
 
-    ThemedSystemBarIcons()
-    LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+/** Searching for the launcher's own planner ("todo", "planner", "tasks") offers it first. */
+private val PLANNER_QUERY = Regex("""^(to-?do|todo|plan|task|agenda|sched)""", RegexOption.IGNORE_CASE)
 
-    // Pull down past the top of the list to close the drawer.
-    val density = LocalDensity.current
-    val closeConnection = remember {
-        object : NestedScrollConnection {
-            var pulled = 0f
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y > 0) {
-                    pulled += available.y
-                    if (pulled > with(density) { 120.dp.toPx() }) {
-                        pulled = 0f
-                        closeDrawer()
-                    }
-                } else if (consumed.y < 0) {
-                    pulled = 0f
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (available.y > 2500f) closeDrawer()
-                pulled = 0f
-                return Velocity.Zero
-            }
-        }
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        DrawerContent(
-            state = state,
-            minimal = minimal,
-            onQueryChange = viewModel::onQueryChange,
-            onToggleLayout = viewModel::toggleLayout,
-            onOpenSettings = onOpenSettings,
-            onSelectTab = viewModel::setTab,
-            onLaunch = viewModel::launch,
-            onLongPress = { sheetApp = it },
-            onOrganize = { viewModel.organizeWithAi(false) },
-            modifier = Modifier.nestedScroll(closeConnection),
-        )
-        SnackbarHost(snackbar, Modifier.fillMaxSize().navigationBarsPadding(), snackbar = { data ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) { androidx.compose.material3.Snackbar(data) }
-        })
-    }
-
-    sheetApp?.let { app -> AppActionsSheet(app = app, handler = viewModel, onDismiss = { sheetApp = null }) }
-}
-
-/** The drawer's visible content. Stateless, so it can be rendered in screenshot tests. */
+/**
+ * The app drawer's visible content: drag handle, search, tabs (A–Z, AI Smart Categories, Custom
+ * Folders), the predicted-apps strip and the app lists. Stateless (screenshot-testable); the home
+ * screen drives its open/close drag and hosts its sheets.
+ */
 @Composable
 internal fun DrawerContent(
     state: DrawerUiState,
+    queryState: TextFieldState,
     minimal: Boolean,
-    onQueryChange: (String) -> Unit,
-    onToggleLayout: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onSelectTab: (DrawerTab) -> Unit,
-    onLaunch: (AppInfo) -> Unit,
-    onLongPress: (AppInfo) -> Unit,
-    onOrganize: () -> Unit,
+    callbacks: DrawerCallbacks,
     modifier: Modifier = Modifier,
+    handleModifier: Modifier = Modifier,
+    listModifier: Modifier = Modifier,
 ) {
+    // Minimal mode is text-only, which only the list layout can show.
+    val layout = if (minimal) DrawerLayout.LIST else state.layout
+    val effective = state.copy(layout = layout)
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
         // Explicit: Material can't infer a content colour for a translucent surface (it fell back to black).
         contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         modifier = modifier.fillMaxSize(),
     ) {
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+            // Grab here (or pull down at the top of the list) to close.
+            Box(handleModifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(width = 36.dp, height = 4.dp).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(50)))
+            }
             DrawerTopBar(
-                query = state.query,
-                onQueryChange = onQueryChange,
-                layout = state.layout,
-                onToggleLayout = onToggleLayout.takeUnless { minimal },
-                onOpenSettings = onOpenSettings,
+                queryState = queryState,
+                layout = layout,
+                onToggleLayout = callbacks.onToggleLayout.takeUnless { minimal },
+                onOpenPrivateSpace = callbacks.onOpenPrivateSpace,
+                onOpenSettings = callbacks.onOpenSettings,
             )
-            if (state.query.isBlank()) {
+            val queryText = queryState.text.toString()
+            val searching = queryText.isNotBlank()
+            if (!searching) {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SegmentedButton(
-                        selected = state.tab == DrawerTab.ALPHABETICAL,
-                        onClick = { onSelectTab(DrawerTab.ALPHABETICAL) },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2),
-                        icon = { Icon(Icons.Rounded.SortByAlpha, null, Modifier.size(18.dp)) },
-                    ) { Text("A–Z") }
-                    SegmentedButton(
-                        selected = state.tab == DrawerTab.CATEGORIES,
-                        onClick = { onSelectTab(DrawerTab.CATEGORIES) },
-                        shape = SegmentedButtonDefaults.itemShape(1, 2),
-                        icon = { Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp)) },
-                    ) { Text("Smart categories") }
+                    val tabs = listOf(
+                        Triple(DrawerTab.ALPHABETICAL, "A–Z", Icons.Rounded.SortByAlpha),
+                        Triple(DrawerTab.CATEGORIES, "AI Smart", Icons.Rounded.AutoAwesome),
+                        Triple(DrawerTab.FOLDERS, "Folders", Icons.Rounded.Folder),
+                    )
+                    tabs.forEachIndexed { index, (tab, label, icon) ->
+                        SegmentedButton(
+                            selected = state.tab == tab,
+                            onClick = { callbacks.onSelectTab(tab) },
+                            shape = SegmentedButtonDefaults.itemShape(index, tabs.size),
+                            icon = { Icon(icon, null, Modifier.size(18.dp)) },
+                        ) { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
                 }
             }
-            Box(Modifier.weight(1f)) {
+            Box(Modifier.weight(1f).then(listModifier)) {
                 when {
                     state.loading -> Unit
-                    state.query.isNotBlank() -> SearchResults(state, minimal, onLaunch, onLongPress)
-                    state.tab == DrawerTab.ALPHABETICAL -> AlphabeticalContent(state, minimal, onLaunch, onLongPress)
+                    // Results trail the field by a frame; don't flash "no match" while they catch up.
+                    searching -> SearchResults(effective, queryText, current = state.query == queryText, minimal, callbacks)
+                    state.tab == DrawerTab.ALPHABETICAL -> AlphabeticalContent(effective, minimal, callbacks)
+                    state.tab == DrawerTab.FOLDERS -> FoldersContent(effective, callbacks)
                     else -> CategoryContent(
-                        state = state,
+                        state = effective,
                         minimal = minimal,
-                        onLaunch = onLaunch,
-                        onLongPress = onLongPress,
-                        onOrganize = onOrganize,
+                        onLaunch = callbacks.onLaunch,
+                        onLongPress = callbacks.onLongPress,
+                        onOrganize = callbacks.onOrganize,
                     )
                 }
             }
@@ -221,25 +185,17 @@ internal fun DrawerContent(
 
 @Composable
 private fun DrawerTopBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
+    queryState: TextFieldState,
     layout: DrawerLayout,
     onToggleLayout: (() -> Unit)?,
+    onOpenPrivateSpace: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            placeholder = { Text("Search apps") },
-            leadingIcon = { Icon(Icons.Rounded.Search, null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Rounded.Close, "Clear") }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(28.dp),
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        LauncherTextField(
+            state = queryState,
+            placeholder = "Search apps",
+            leadingContent = { Icon(Icons.Rounded.Search, null, Modifier.padding(start = 14.dp, end = 8.dp)) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             modifier = Modifier.weight(1f),
         )
@@ -251,22 +207,58 @@ private fun DrawerTopBar(
                 )
             }
         }
+        IconButton(onClick = onOpenPrivateSpace) { Icon(Icons.Rounded.Lock, "Private Space") }
         IconButton(onClick = onOpenSettings) { Icon(Icons.Rounded.Settings, "Launcher settings") }
     }
 }
 
+/** Five predicted apps (usage habits, time of day, connected audio). */
 @Composable
-private fun SearchResults(state: DrawerUiState, minimal: Boolean, onLaunch: (AppInfo) -> Unit, onLongPress: (AppInfo) -> Unit) {
+private fun SuggestedRow(state: DrawerUiState, callbacks: DrawerCallbacks) {
+    if (state.suggestions.isEmpty()) return
+    Column(Modifier.padding(horizontal = 4.dp)) {
+        Text(
+            "Suggested",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            state.suggestions.forEach { app ->
+                AppGridTile(
+                    app = app,
+                    onClick = { bounds -> callbacks.onLaunch(app, bounds) },
+                    onLongClick = { callbacks.onLongPress(app) },
+                    iconSize = 48.dp,
+                    badgeCount = state.badges[app.packageName] ?: 0,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            repeat(5 - state.suggestions.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+@Composable
+private fun SearchResults(state: DrawerUiState, query: String, current: Boolean, minimal: Boolean, callbacks: DrawerCallbacks) {
+    val planner = PLANNER_QUERY.containsMatchIn(query.trim())
     if (state.searchResults.isEmpty()) {
+        if (!current) return
+        if (planner) {
+            PlannerShortcut(callbacks.onOpenPlanner, Modifier.padding(12.dp))
+            return
+        }
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.TopCenter) {
-            Text("No apps match \"${state.query}\"", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("No apps match \"$query\"", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
     if (minimal) {
         LazyColumn(contentPadding = PaddingValues(8.dp), modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
+            if (planner) item(key = "planner") { PlannerShortcut(callbacks.onOpenPlanner) }
             items(state.searchResults, key = { it.componentKey }) { app ->
-                AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) }, showIcon = false)
+                AppListRow(app = app, onClick = { bounds -> callbacks.onLaunch(app, bounds) }, onLongClick = { callbacks.onLongPress(app) }, showIcon = false)
             }
         }
         return
@@ -276,20 +268,26 @@ private fun SearchResults(state: DrawerUiState, minimal: Boolean, onLaunch: (App
         contentPadding = PaddingValues(12.dp),
         modifier = Modifier.fillMaxSize().navigationBarsPadding(),
     ) {
+        if (planner) item(key = "planner", span = { GridItemSpan(maxLineSpan) }) { PlannerShortcut(callbacks.onOpenPlanner, Modifier.padding(bottom = 8.dp)) }
         items(state.searchResults, key = { it.componentKey }) { app ->
-            AppGridTile(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) })
+            AppGridTile(
+                app = app,
+                onClick = { bounds -> callbacks.onLaunch(app, bounds) },
+                onLongClick = { callbacks.onLongPress(app) },
+                badgeCount = state.badges[app.packageName] ?: 0,
+            )
         }
     }
 }
 
 @Composable
-private fun AlphabeticalContent(state: DrawerUiState, minimal: Boolean, onLaunch: (AppInfo) -> Unit, onLongPress: (AppInfo) -> Unit) {
+private fun AlphabeticalContent(state: DrawerUiState, minimal: Boolean, callbacks: DrawerCallbacks) {
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    // Index of each section header in the lazy list (headers occupy one item each).
+    // Index of each section header in the lazy list (one suggestions item, then headers + apps).
     val headerIndex = remember(state.alphabetical) {
-        var index = 0
+        var index = 1
         state.alphabetical.associate { section ->
             val at = index
             index += 1 + section.apps.size
@@ -299,9 +297,9 @@ private fun AlphabeticalContent(state: DrawerUiState, minimal: Boolean, onLaunch
     Row(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             if (state.layout == DrawerLayout.GRID) {
-                AlphabeticalGrid(state, gridState, onLaunch, onLongPress)
+                AlphabeticalGrid(state, gridState, callbacks)
             } else {
-                AlphabeticalList(state, minimal, listState, onLaunch, onLongPress)
+                AlphabeticalList(state, minimal, listState, callbacks)
             }
         }
         FastScroller(
@@ -318,50 +316,99 @@ private fun AlphabeticalContent(state: DrawerUiState, minimal: Boolean, onLaunch
 }
 
 @Composable
-private fun AlphabeticalGrid(
-    state: DrawerUiState,
-    gridState: LazyGridState,
-    onLaunch: (AppInfo) -> Unit,
-    onLongPress: (AppInfo) -> Unit,
-) {
+private fun AlphabeticalGrid(state: DrawerUiState, gridState: LazyGridState, callbacks: DrawerCallbacks) {
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(state.columns),
-        contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 96.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        item(key = "suggested", span = { GridItemSpan(maxLineSpan) }) { SuggestedRow(state, callbacks) }
         state.alphabetical.forEach { section ->
             item(key = "header-${section.key}", span = { GridItemSpan(maxLineSpan) }) { SectionHeader(section.key) }
             items(section.apps, key = { it.componentKey }) { app ->
-                AppGridTile(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) })
+                AppGridTile(
+                    app = app,
+                    onClick = { bounds -> callbacks.onLaunch(app, bounds) },
+                    onLongClick = { callbacks.onLongPress(app) },
+                    badgeCount = state.badges[app.packageName] ?: 0,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun AlphabeticalList(
-    state: DrawerUiState,
-    minimal: Boolean,
-    listState: LazyListState,
-    onLaunch: (AppInfo) -> Unit,
-    onLongPress: (AppInfo) -> Unit,
-) {
+private fun AlphabeticalList(state: DrawerUiState, minimal: Boolean, listState: LazyListState, callbacks: DrawerCallbacks) {
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 96.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        item(key = "suggested") { if (!minimal) SuggestedRow(state, callbacks) }
         state.alphabetical.forEach { section ->
             item(key = "header-${section.key}") { SectionHeader(section.key) }
             items(section.apps, key = { it.componentKey }) { app ->
                 AppListRow(
                     app = app,
-                    onClick = { onLaunch(app) },
-                    onLongClick = { onLongPress(app) },
+                    onClick = { bounds -> callbacks.onLaunch(app, bounds) },
+                    onLongClick = { callbacks.onLongPress(app) },
                     supportingText = app.category?.displayName.takeUnless { minimal },
                     showIcon = !minimal,
+                    badgeCount = state.badges[app.packageName] ?: 0,
                 )
+            }
+        }
+    }
+}
+
+/** Custom folders: name, description and a preview of their apps. */
+@Composable
+private fun FoldersContent(state: DrawerUiState, callbacks: DrawerCallbacks) {
+    LazyColumn(
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item(key = "planner") { PlannerShortcut(callbacks.onOpenPlanner) }
+        item(key = "new") {
+            FilledTonalButton(onClick = callbacks.onCreateFolder, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Add, null)
+                Spacer(Modifier.width(8.dp))
+                Text("New folder")
+            }
+        }
+        if (state.folders.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    "Group apps your way, e.g. \"Work: apps for my job\". Then say \"open my Work folder\" to the assistant.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+        items(state.folders, key = { "folder-${it.id}" }) { folder ->
+            val apps = state.appsOf(folder)
+            Card(
+                onClick = { callbacks.onOpenFolder(folder) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FolderIcon(folder, apps, 52.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(folder.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            folder.description ?: "${apps.size} app${if (apps.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
     }
@@ -451,7 +498,7 @@ private fun FastScroller(letters: List<String>, onLetter: (String) -> Unit, modi
 private fun CategoryContent(
     state: DrawerUiState,
     minimal: Boolean,
-    onLaunch: (AppInfo) -> Unit,
+    onLaunch: (AppInfo, Rect) -> Unit,
     onLongPress: (AppInfo) -> Unit,
     onOrganize: () -> Unit,
 ) {
@@ -471,7 +518,7 @@ private fun CategoryContent(
                     Column {
                         CategoryHeader(title, section.apps.size, accent ?: MaterialTheme.colorScheme.primary, Modifier.padding(top = 12.dp))
                         section.apps.forEach { app ->
-                            AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) }, showIcon = false)
+                            AppListRow(app = app, onClick = { bounds -> onLaunch(app, bounds) }, onLongClick = { onLongPress(app) }, showIcon = false)
                         }
                     }
                     return@item
@@ -481,7 +528,7 @@ private fun CategoryContent(
                         CategoryHeader(title, section.apps.size, accent)
                         if (state.layout == DrawerLayout.LIST) {
                             section.apps.forEach { app ->
-                                AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) })
+                                AppListRow(app = app, onClick = { bounds -> onLaunch(app, bounds) }, onLongClick = { onLongPress(app) }, badgeCount = state.badges[app.packageName] ?: 0)
                             }
                         } else {
                             section.apps.chunked(state.columns).forEach { row ->
@@ -489,8 +536,9 @@ private fun CategoryContent(
                                     row.forEach { app ->
                                         AppGridTile(
                                             app = app,
-                                            onClick = { onLaunch(app) },
+                                            onClick = { bounds -> onLaunch(app, bounds) },
                                             onLongClick = { onLongPress(app) },
+                                            badgeCount = state.badges[app.packageName] ?: 0,
                                             modifier = Modifier.weight(1f),
                                         )
                                     }
@@ -571,5 +619,24 @@ private fun CategorizationBanner(state: DrawerUiState, onOrganize: () -> Unit) {
             }
         }
         else -> Unit
+    }
+}
+
+/** The launcher's own To-dos & Daily Planner screen. */
+@Composable
+private fun PlannerShortcut(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Checklist, null)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("To-dos & planner", style = MaterialTheme.typography.titleMedium)
+                Text("Your lists and today's time blocks", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }

@@ -8,32 +8,40 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.AddToHomeScreen
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedSecureTextField
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,10 +50,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import android.graphics.Rect
+import android.os.Bundle
 import com.ailauncher.domain.model.AppCategory
 import com.ailauncher.domain.model.AppInfo
+import com.ailauncher.domain.model.AppShortcut
+import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.CategorySource
+import coil3.compose.AsyncImage
+import com.ailauncher.data.packages.ShortcutIconData
 
 /** Everything the long-press menu can do with an app. */
 interface AppActionHandler {
@@ -56,11 +71,15 @@ interface AppActionHandler {
     fun rename(app: AppInfo, label: String?)
     fun setCategory(app: AppInfo, category: AppCategory)
     fun moveInDock(app: AppInfo, offset: Int) = Unit
+    suspend fun shortcuts(app: AppInfo): List<AppShortcut> = emptyList()
+    fun launchShortcut(shortcut: AppShortcut, sourceBounds: Rect?, options: Bundle?) = Unit
+    fun addToHome(app: AppInfo) = Unit
+    fun addToFolder(app: AppInfo, folder: CustomFolder) = Unit
 }
 
 /**
- * Long-press menu: App info, Uninstall, Pin to / Remove from dock, Hide, Rename and Change
- * category (a manual override that the AI never replaces).
+ * Long-press menu: the app's own shortcuts, Pin to / Remove from dock, Add to home screen, Add to
+ * folder, Change category, Rename, Move to Private Space, App info and Uninstall.
  */
 @Composable
 fun AppActionsSheet(
@@ -68,6 +87,10 @@ fun AppActionsSheet(
     handler: AppActionHandler,
     onDismiss: () -> Unit,
     showDockReorder: Boolean = false,
+    folders: List<CustomFolder> = emptyList(),
+    onCreateFolder: (() -> Unit)? = null,
+    /** Set when the app was long-pressed on a home page: offers "Remove from home screen". */
+    onRemoveFromHome: (() -> Unit)? = null,
 ) {
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
@@ -75,9 +98,13 @@ fun AppActionsSheet(
     )
     var renaming by remember { mutableStateOf(false) }
     var pickingCategory by remember { mutableStateOf(false) }
+    var pickingFolder by remember { mutableStateOf(false) }
+    var shortcuts by remember(app.packageName) { mutableStateOf<List<AppShortcut>>(emptyList()) }
+    LaunchedEffect(app.packageName) { shortcuts = runCatching { handler.shortcuts(app) }.getOrDefault(emptyList()) }
+    val launchFactory = rememberLaunchRequestFactory()
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp)) {
+        Column(Modifier.navigationBarsPadding().padding(bottom = 8.dp).verticalScroll(rememberScrollState())) {
             Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 AppIcon(app, 48.dp)
                 Spacer(Modifier.width(16.dp))
@@ -92,6 +119,28 @@ fun AppActionsSheet(
                         null -> ""
                     }
                     Text(category + source, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (shortcuts.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                shortcuts.forEach { shortcut ->
+                    val bounds = remember { IconBounds() }
+                    AppListItem(
+                        headlineContent = { Text(shortcut.shortLabel, maxLines = 1) },
+                        supportingContent = shortcut.longLabel?.takeIf { it != shortcut.shortLabel }?.let { { Text(it, maxLines = 1) } },
+                        leadingContent = {
+                            AsyncImage(
+                                model = ShortcutIconData(shortcut.packageName, shortcut.id),
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp).trackBounds(bounds),
+                            )
+                        },
+                        onClick = {
+                            val request = launchFactory(app, bounds.rect)
+                            handler.launchShortcut(shortcut, request.sourceBounds, request.options)
+                            onDismiss()
+                        },
+                    )
                 }
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -113,9 +162,21 @@ fun AppActionsSheet(
                 handler.togglePin(app)
                 onDismiss()
             }
+            if (onRemoveFromHome != null) {
+                SheetAction(Icons.Rounded.RemoveCircleOutline, "Remove from home screen") {
+                    onRemoveFromHome()
+                    onDismiss()
+                }
+            } else {
+                SheetAction(Icons.AutoMirrored.Rounded.AddToHomeScreen, "Add to home screen") {
+                    handler.addToHome(app)
+                    onDismiss()
+                }
+            }
+            SheetAction(Icons.Rounded.CreateNewFolder, "Add to folder") { pickingFolder = true }
             SheetAction(Icons.Rounded.Category, "Change category") { pickingCategory = true }
             SheetAction(Icons.Rounded.DriveFileRenameOutline, "Rename") { renaming = true }
-            SheetAction(Icons.Rounded.VisibilityOff, "Hide app") {
+            SheetAction(Icons.Rounded.Lock, "Move to Private Space") {
                 handler.hide(app)
                 onDismiss()
             }
@@ -155,6 +216,39 @@ fun AppActionsSheet(
             },
         )
     }
+    if (pickingFolder) {
+        AlertDialog(
+            onDismissRequest = { pickingFolder = false },
+            title = { Text("Add ${app.label} to…") },
+            text = {
+                LazyColumn {
+                    items(folders, key = { it.id }) { folder ->
+                        AppListItem(
+                            headlineContent = { Text(folder.name, maxLines = 1) },
+                            supportingContent = folder.description?.let { { Text(it, maxLines = 1) } },
+                            leadingContent = { Icon(Icons.Rounded.Folder, null, tint = folder.accent.colors().second) },
+                            onClick = {
+                                handler.addToFolder(app, folder)
+                                pickingFolder = false
+                                onDismiss()
+                            },
+                        )
+                    }
+                    if (folders.isEmpty()) item { Text("No folders yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            },
+            confirmButton = {
+                if (onCreateFolder != null) {
+                    TextButton(onClick = {
+                        pickingFolder = false
+                        onDismiss()
+                        onCreateFolder()
+                    }) { Text("New folder") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { pickingFolder = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 @Composable
@@ -168,14 +262,21 @@ private fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
 
 @Composable
 fun RenameDialog(current: String, original: String, onDismiss: () -> Unit, onConfirm: (String?) -> Unit) {
-    var text by rememberSaveable { mutableStateOf(current) }
+    val state = rememberTextFieldState(current)
+    val save = { onConfirm(state.text.toString().trim().takeIf { it.isNotEmpty() && it != original }) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Rename app") },
         text = {
-            OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("Label") })
+            LauncherTextField(
+                state = state,
+                placeholder = original,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                onKeyboardAction = { save() },
+                shape = RoundedCornerShape(16.dp),
+            )
         },
-        confirmButton = { TextButton(onClick = { onConfirm(text.trim().takeIf { it.isNotEmpty() && it != original }) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = save) { Text("Save") } },
         dismissButton = {
             Row {
                 TextButton(onClick = { onConfirm(null) }) { Text("Reset") }
@@ -229,17 +330,12 @@ fun PassphraseDialog(
                     else "Enter the passphrase used to create the backup.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                OutlinedSecureTextField(
-                    state = first,
-                    label = { Text("Passphrase") },
-                    supportingText = { if (confirm && firstText.isNotEmpty() && tooShort) Text("At least $MIN_PASSPHRASE characters") },
-                )
+                LauncherSecureTextField(state = first, placeholder = "Passphrase", imeAction = if (confirm) ImeAction.Next else ImeAction.Done)
+                if (confirm && firstText.isNotEmpty() && tooShort) {
+                    Text("At least $MIN_PASSPHRASE characters", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
                 if (confirm) {
-                    OutlinedSecureTextField(
-                        state = second,
-                        label = { Text("Repeat passphrase") },
-                        isError = second.text.isNotEmpty() && mismatch,
-                    )
+                    LauncherSecureTextField(state = second, placeholder = "Repeat passphrase", isError = second.text.isNotEmpty() && mismatch)
                 }
             }
         },

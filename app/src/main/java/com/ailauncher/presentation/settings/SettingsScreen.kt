@@ -1,5 +1,6 @@
 package com.ailauncher.presentation.settings
 
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Home
@@ -62,6 +64,11 @@ import coil3.compose.AsyncImage
 import com.ailauncher.BuildConfig
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.domain.model.DrawerTab
+import com.ailauncher.domain.model.FileAccessLevel
+import com.ailauncher.presentation.components.NotificationDigestDisclosure
+import com.ailauncher.presentation.components.SpecialAccess
+import com.ailauncher.presentation.drawer.PrivateSpaceAuth
+import com.ailauncher.presentation.drawer.authenticatePrivateSpace
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.HomeTextColor
 import com.ailauncher.domain.model.IconStyle
@@ -89,6 +96,8 @@ fun SettingsScreen(
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var showHidden by remember { mutableStateOf(false) }
+    var hiddenUnprotected by remember { mutableStateOf(false) }
+    var showDigestDisclosure by remember { mutableStateOf(false) }
     var passphraseFor by remember { mutableStateOf<BackupFlow?>(null) }
     var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
@@ -97,6 +106,16 @@ fun SettingsScreen(
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { viewModel.refreshSystemStatus() }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refreshSystemStatus() }
+    val openPrivateSpace = {
+        authenticatePrivateSpace(context.findActivity() ?: context) { result ->
+            when (result) {
+                PrivateSpaceAuth.Granted -> { hiddenUnprotected = false; showHidden = true }
+                PrivateSpaceAuth.NoScreenLock -> { hiddenUnprotected = true; showHidden = true }
+                is PrivateSpaceAuth.Failed -> viewModel.showMessage(result.message)
+            }
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             pendingUri = uri
@@ -218,7 +237,15 @@ fun SettingsScreen(
             if (!state.settings.minimalMode) {
                 item {
                     SegmentedSetting(
-                        title = "App grid columns",
+                        title = "Home screen columns",
+                        options = (4..5).map { it to it.toString() },
+                        selected = state.settings.homeGridColumns,
+                        onSelect = { columns -> viewModel.updateSettings { it.copy(homeGridColumns = columns) } },
+                    )
+                }
+                item {
+                    SegmentedSetting(
+                        title = "App drawer columns",
                         options = (4..5).map { it to it.toString() },
                         selected = state.settings.gridColumns,
                         onSelect = { columns -> viewModel.updateSettings { it.copy(gridColumns = columns) } },
@@ -262,12 +289,17 @@ fun SettingsScreen(
             item {
                 SegmentedSetting(
                     title = "Open on",
-                    options = listOf(DrawerTab.ALPHABETICAL to "A–Z", DrawerTab.CATEGORIES to "Smart categories"),
+                    options = listOf(DrawerTab.ALPHABETICAL to "A–Z", DrawerTab.CATEGORIES to "Smart", DrawerTab.FOLDERS to "Folders"),
                     selected = state.settings.drawerTab,
                     onSelect = { tab -> viewModel.updateSettings { it.copy(drawerTab = tab) } },
                 )
             }
-            item { ActionSetting("Hidden apps", "${state.hiddenApps.size} hidden") { showHidden = true } }
+            item {
+                SwitchSetting("Suggested apps", "Five predictions from your habits, the time of day and connected audio", state.settings.showSuggestedApps) { on ->
+                    viewModel.updateSettings { it.copy(showSuggestedApps = on) }
+                }
+            }
+            item { ActionSetting("Private Space", "${state.hiddenApps.size} hidden app${if (state.hiddenApps.size == 1) "" else "s"} · unlock with fingerprint, face or PIN", onClick = openPrivateSpace) }
             item { ActionSetting("Re-sort all apps with AI", "Keeps the categories you chose yourself", onClick = viewModel::resortAllApps) }
             item { ActionSetting("Reset automatic categories", null, onClick = viewModel::resetCategories) }
 
@@ -283,7 +315,24 @@ fun SettingsScreen(
                     is ModelFileState.Paused -> "Download paused"
                     else -> "Not downloaded"
                 }
-                ActionSetting("Qwen3 1.7B model", status, onClick = onOpenModelSetup)
+                ActionSetting(state.activeModel?.displayName ?: "AI model", "$status · tap to switch models", onClick = onOpenModelSetup)
+            }
+            item {
+                val gpu = state.system.gpuBackendAvailable
+                SegmentedSetting(
+                    title = "Processor",
+                    subtitle = when {
+                        !gpu -> "GPU offload isn't available in this build (arm64 phones only)"
+                        state.system.gpuNotice != null -> state.system.gpuNotice
+                        state.modelConfig.gpuOffload -> (state.engine as? EngineState.Ready)?.info?.accelerator?.let { "Now running on: $it" }
+                            ?: "Uses the phone's GPU through Vulkan; falls back to the CPU automatically"
+                        else -> "The CPU works on every phone. GPU offload can be faster on recent Adreno / Mali / Xclipse GPUs"
+                    },
+                    options = listOf(false to "CPU Only (Safe Default)", true to "GPU Offload (Vulkan)"),
+                    selected = state.modelConfig.gpuOffload && gpu,
+                    enabled = gpu,
+                    onSelect = viewModel::setGpuOffload,
+                )
             }
             item {
                 ChoiceSetting(
@@ -335,6 +384,76 @@ fun SettingsScreen(
             }
             item { ActionSetting("Clear chat history", null, onClick = viewModel::clearChatHistory) }
 
+            // ---------------------------------------------------------------- Notifications
+            item { SectionTitle("Notifications") }
+            item {
+                SwitchSetting(
+                    "Notification digest",
+                    when {
+                        !state.settings.notificationDigestEnabled -> "Off. Badges, smart pills and \"what did I miss?\" need it"
+                        !state.system.notificationListener -> "Waiting for notification access · tap to allow"
+                        else -> "On-device only · deleted after 24 hours"
+                    },
+                    state.settings.notificationDigestEnabled,
+                ) { on -> if (on) showDigestDisclosure = true else viewModel.setNotificationDigest(false) }
+            }
+            if (state.settings.notificationDigestEnabled) {
+                if (!state.system.notificationListener) {
+                    item {
+                        ActionSetting("Allow notification access", "Required by Android for the digest") {
+                            SpecialAccess.open(context, SpecialAccess.notificationListenerIntent(context), Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        }
+                    }
+                }
+                item {
+                    SwitchSetting("Unread badges", "Counts on app icons", state.settings.notificationBadges) { on ->
+                        viewModel.updateSettings { it.copy(notificationBadges = on) }
+                    }
+                }
+                item { ActionSetting("Clear digest now", null, onClick = viewModel::clearNotificationDigest) }
+            }
+
+            // ---------------------------------------------------------------- AI tools
+            item { SectionTitle("AI tools & permissions") }
+            item {
+                ChoiceSetting(
+                    title = "\"Unused apps\" means not opened for",
+                    options = listOf(14, 30, 60, 90, 180).map { it to "$it days" },
+                    selected = state.settings.unusedAppThresholdDays,
+                    onSelect = { days -> viewModel.updateSettings { it.copy(unusedAppThresholdDays = days) } },
+                )
+            }
+            item {
+                ChoiceSetting(
+                    title = "\"Old files\" means untouched for",
+                    options = listOf(30, 90, 180, 365).map { it to if (it == 365) "1 year" else "$it days" },
+                    selected = state.settings.staleFileThresholdDays,
+                    onSelect = { days -> viewModel.updateSettings { it.copy(staleFileThresholdDays = days) } },
+                )
+            }
+            item {
+                PermissionSetting("Usage access", "Last-used times for unused apps and suggestions", state.system.usageAccess) {
+                    SpecialAccess.open(context, SpecialAccess.usageAccessIntent(context), Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                }
+            }
+            item {
+                PermissionSetting("Photos, videos & audio", "Find your largest and oldest media files", state.system.fileAccess != FileAccessLevel.NONE) {
+                    permissionLauncher.launch(SpecialAccess.mediaPermissions())
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                item {
+                    PermissionSetting("All files access (optional)", "Include documents and archives (PDF, ZIP) in file searches", state.system.fileAccess == FileAccessLevel.ALL_FILES) {
+                        SpecialAccess.open(context, SpecialAccess.allFilesAccessIntent(context))
+                    }
+                }
+            }
+            item {
+                PermissionSetting("Contacts", "Call or message people by name (\"text Sam I'm late\")", state.system.contactsAccess) {
+                    permissionLauncher.launch(arrayOf(android.Manifest.permission.READ_CONTACTS))
+                }
+            }
+
             // ---------------------------------------------------------------- Backup
             item { SectionTitle("Backup & restore") }
             item {
@@ -359,13 +478,26 @@ fun SettingsScreen(
         }
     }
 
+    if (showDigestDisclosure) {
+        NotificationDigestDisclosure(
+            onAccept = {
+                showDigestDisclosure = false
+                viewModel.setNotificationDigest(true)
+                if (!state.system.notificationListener) {
+                    SpecialAccess.open(context, SpecialAccess.notificationListenerIntent(context), Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
+            },
+            onDismiss = { showDigestDisclosure = false },
+        )
+    }
+
     if (showHidden) {
         AlertDialog(
             onDismissRequest = { showHidden = false },
-            title = { Text("Hidden apps") },
+            title = { Text("Private Space") },
             text = {
                 if (state.hiddenApps.isEmpty()) {
-                    Text("No hidden apps. Long-press an app and choose Hide app.")
+                    Text("No hidden apps. Long-press an app and choose Move to Private Space." + if (hiddenUnprotected) "\n\nSet a screen lock to protect Private Space." else "")
                 } else {
                     LazyColumn {
                         items(state.hiddenApps, key = { it.componentKey }) { app ->
@@ -468,6 +600,22 @@ private fun SwitchSetting(title: String, subtitle: String?, checked: Boolean, on
         supportingContent = subtitle?.let { { Text(it) } },
         trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
         onClick = { onChange(!checked) },
+    )
+}
+
+@Composable
+private fun PermissionSetting(title: String, subtitle: String, granted: Boolean, onRequest: () -> Unit) {
+    AppListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(subtitle) },
+        trailingContent = {
+            if (granted) {
+                Icon(Icons.Rounded.CheckCircle, "Allowed", tint = MaterialTheme.colorScheme.primary)
+            } else {
+                TextButton(onClick = onRequest) { Text("Allow") }
+            }
+        },
+        onClick = if (granted) null else onRequest,
     )
 }
 

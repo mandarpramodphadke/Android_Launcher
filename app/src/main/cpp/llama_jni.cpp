@@ -8,7 +8,7 @@
 //    generateStream(handle, prompt, ..., cb)  blocking; streams UTF-8 chunks to cb.onToken()
 //    stopGeneration()                         thread-safe cancellation (prompt eval + decoding)
 //    unloadModel(handle)                      frees the model, context and KV cache
-//    countTokens / setThreads / clearCache / describe / systemInfo
+//    countTokens / setThreads / clearCache / describe / systemInfo / enableGpu
 //
 //  Strings that may contain arbitrary Unicode (prompts, grammars) cross the boundary as UTF-8
 //  byte arrays: JNI's GetStringUTFChars produces *modified* UTF-8, which mangles emoji and other
@@ -121,6 +121,16 @@ JNI_FN(nativeInit)(JNIEnv* env, jclass /*clazz*/, jstring native_lib_dir) {
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+JNI_FN(enableGpu)(JNIEnv* env, jclass /*clazz*/) {
+    try {
+        return env->NewStringUTF(LlmEngine::EnableGpuBackend().c_str());
+    } catch (const std::exception& e) {
+        __android_log_print(ANDROID_LOG_WARN, kTag, "GPU backend unavailable: %s", e.what());
+        return env->NewStringUTF("");
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
 JNI_FN(systemInfo)(JNIEnv* env, jclass /*clazz*/) {
     try {
         return env->NewStringUTF(LlmEngine::SystemInfo().c_str());
@@ -131,7 +141,7 @@ JNI_FN(systemInfo)(JNIEnv* env, jclass /*clazz*/) {
 
 extern "C" JNIEXPORT jlong JNICALL
 JNI_FN(loadModel)(JNIEnv* env, jclass /*clazz*/, jstring model_path, jint n_ctx, jint n_threads,
-                  jint n_batch, jboolean use_mmap, jboolean quantize_kv_cache,
+                  jint n_batch, jboolean use_mmap, jboolean quantize_kv_cache, jint n_gpu_layers,
                   jobject progress_callback) {
     try {
         LoadParams params;
@@ -142,6 +152,7 @@ JNI_FN(loadModel)(JNIEnv* env, jclass /*clazz*/, jstring model_path, jint n_ctx,
         params.n_ubatch = std::min<int32_t>(256, n_batch);
         params.use_mmap = use_mmap == JNI_TRUE;
         params.quantize_kv_cache = quantize_kv_cache == JNI_TRUE;
+        params.n_gpu_layers = std::max<jint>(0, n_gpu_layers);
 
         ProgressSink sink;
         jobject callback_ref = nullptr;

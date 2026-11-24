@@ -1,5 +1,6 @@
 package com.ailauncher.data.actions
 
+import com.ailauncher.domain.usecase.FreeSlots
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -356,7 +357,7 @@ class LauncherToolExecutor @Inject constructor(
                 val busy = blocks.map { it.startMinutes to it.endMinutes } + events.filterNot { it.allDay }.map { e ->
                     minutesOf(e.startMillis) to minutesOf(e.endMillis).let { if (it <= minutesOf(e.startMillis)) 24 * 60 else it }
                 }
-                val free = freeSlots(busy)
+                val free = FreeSlots.between(busy)
                 val data = buildJsonObject {
                     put("date", date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH)))
                     putJsonArray("blocks") {
@@ -386,20 +387,6 @@ class LauncherToolExecutor @Inject constructor(
         return ranked.filter { it.second >= FuzzyMatcher.CONFIDENT_MATCH * 0.8 }
             .sortedWith(compareBy({ it.first.date != near }, { it.first.date }, { -it.second }))
             .firstOrNull()?.first
-    }
-
-    /** Gaps of at least 30 minutes between 08:00 and 21:00. */
-    private fun freeSlots(busy: List<Pair<Int, Int>>): List<Pair<Int, Int>> {
-        val slots = mutableListOf<Pair<Int, Int>>()
-        var cursor = DAY_START
-        busy.map { (s, e) -> s.coerceIn(DAY_START, DAY_END) to e.coerceIn(DAY_START, DAY_END) }
-            .sortedBy { it.first }
-            .forEach { (s, e) ->
-                if (s - cursor >= MIN_FREE) slots += cursor to s
-                cursor = maxOf(cursor, e)
-            }
-        if (DAY_END - cursor >= MIN_FREE) slots += cursor to DAY_END
-        return slots.take(6)
     }
 
     private fun minutesOf(millis: Long): Int = Instant.ofEpochMilli(millis).atZone(zone).toLocalTime().let { it.hour * 60 + it.minute }
@@ -534,9 +521,6 @@ class LauncherToolExecutor @Inject constructor(
         private const val MAX_FOR_MODEL = 10
         private const val MAX_TODOS_FOR_MODEL = 20
         private const val MAX_NOTIFICATIONS_FOR_MODEL = 20
-        private const val DAY_START = 8 * 60
-        private const val DAY_END = 21 * 60
-        private const val MIN_FREE = 30
         private val WHATSAPP_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
 
         /** 1 decimal, binary units, locale-independent (the model reads it). */

@@ -83,6 +83,9 @@ class NotificationDigestRepositoryImpl @Inject constructor(
 
     override suspend fun clear() = dao.clear()
 
+    /** Drops entries older than 24 hours (also runs at app start, in case nothing was posted since). */
+    suspend fun purgeExpired() = dao.purgeOlderThan(System.currentTimeMillis() - RETENTION_MILLIS)
+
     // ------------------------------------------------------------------ called by the listener
 
     private suspend fun enabled() = settings.launcherSettings.first().notificationDigestEnabled

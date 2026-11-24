@@ -30,6 +30,9 @@ struct LoadParams {
     int32_t n_ubatch = 256;    // physical batch; smaller = smaller compute buffer on mobile
     bool use_mmap = true;      // weights stay file-backed (reclaimable) instead of anonymous RAM
     bool quantize_kv_cache = true;  // q8_0 K/V halves KV-cache RAM; falls back to f16 if unsupported
+    // Transformer layers offloaded to the GPU (Vulkan). 0 = CPU only; a large value = all layers.
+    // Only honoured after EnableGpuBackend() found a GPU; otherwise the model loads on the CPU.
+    int32_t n_gpu_layers = 0;
 };
 
 struct SamplingParams {
@@ -73,6 +76,10 @@ public:
     // One-time process initialisation. With GGML_BACKEND_DL builds, `backend_dir` is scanned for
     // the CPU backend variants and the best one for this CPU is loaded. May be empty.
     static void InitBackends(const std::string& backend_dir);
+    // Loads the Vulkan backend (libggml-vulkan.so in the backend dir) on first use. Kept separate
+    // from InitBackends so the GPU driver is never touched unless the user enables GPU offload.
+    // Returns the name of the GPU device that will be used, or an empty string if there is none.
+    static std::string EnableGpuBackend();
     static std::string SystemInfo();
     // Thread-safe: cancels the generation / prompt evaluation running in this process, if any.
     static void RequestStop();
@@ -113,6 +120,8 @@ private:
     llama_batch_ext* batch_ = nullptr;
     int32_t n_batch_ = 0;
     bool kv_quantized_ = false;
+    int32_t gpu_layers_ = 0;     // layers actually offloaded (0 = CPU only)
+    std::string gpu_device_;     // e.g. "Vulkan0 (Adreno (TM) 740)"; empty on CPU
     // Tokens currently materialised in the KV cache for sequence 0, in position order.
     std::vector<llama_token> kv_tokens_;
 };
