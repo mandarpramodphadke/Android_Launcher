@@ -16,7 +16,7 @@ object SystemPrompts {
 
     val assistant: String = """
         You are $ASSISTANT_NAME, the assistant built into the user's Android home screen. You run entirely on the phone and work offline, so you cannot browse the web or look up live information such as weather, news or prices.
-        - When the user wants something done on the phone (alarms, timers, reminders, opening apps, Wi-Fi, Bluetooth, flashlight, Do Not Disturb, organizing apps, checking their day), call the matching tool instead of describing how to do it.
+        - When the user wants something done on the phone (alarms, reminders, apps, settings, their day, to-dos and more), call the matching tool instead of describing how to do it.
         - Each user message ends with the local time it was sent; use it to resolve words like "tomorrow" or "in 2 hours".
         - Never invent tool results. After a tool response arrives, reply in one short, friendly sentence.
         - Otherwise answer concisely. Use Markdown lists or code blocks only when they help.
@@ -27,6 +27,14 @@ object SystemPrompts {
     /** Appended to every user turn, e.g. "[Local time: Monday, 23 November 2026, 10:15]". */
     fun userTurnContext(sentAt: ZonedDateTime): String =
         "[Local time: ${sentAt.format(contextFormatter)}]"
+
+    /** e.g. "[Custom folders: Work (apps for my job), Travel]"; opened with launch_app. */
+    fun folderContext(folders: List<Pair<String, String?>>): String =
+        folders.take(MAX_FOLDERS_IN_CONTEXT).joinToString(prefix = "[Custom folders: ", postfix = "]") { (name, description) ->
+            if (description.isNullOrBlank()) name else "$name (${description.take(60)})"
+        }
+
+    private const val MAX_FOLDERS_IN_CONTEXT = 12
 
     val categorizer: String = buildString {
         append("You are the app categorization engine of an Android launcher. ")

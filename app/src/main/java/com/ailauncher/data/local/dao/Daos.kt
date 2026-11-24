@@ -47,8 +47,13 @@ interface AppDao {
         if (removals.isNotEmpty()) {
             deleteApps(removals)
             clearDockFor(removals)
+            deleteHomeItemsFor(removals)
         }
     }
+
+    /** Uninstalled apps also disappear from the home screen pages. */
+    @Query("DELETE FROM home_items WHERE type = 'APP' AND componentKey IN (:keys)")
+    suspend fun deleteHomeItemsFor(keys: List<String>)
 
     // --- prefs ---------------------------------------------------------------------------------
     @Query("SELECT * FROM app_prefs WHERE componentKey = :componentKey")

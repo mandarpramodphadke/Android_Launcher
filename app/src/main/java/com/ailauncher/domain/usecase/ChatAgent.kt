@@ -32,6 +32,7 @@ import com.ailauncher.domain.model.StopReason
 import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.domain.repository.ChatRepository
+import com.ailauncher.domain.repository.FolderRepository
 import com.ailauncher.domain.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -75,6 +76,7 @@ class ChatAgent @Inject constructor(
     private val chatRepository: ChatRepository,
     private val actionExecutor: ActionExecutor,
     private val settingsRepository: SettingsRepository,
+    private val folderRepository: FolderRepository,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     /** In-memory view of the reply being streamed; persisted to Room once complete. */
@@ -157,7 +159,7 @@ class ChatAgent @Inject constructor(
         scope.launch {
             val prefix = Qwen3PromptBuilder.build(
                 messages = listOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant)),
-                tools = ToolDefinitions.all,
+                tools = ToolDefinitions.forContext(llm.contextSize),
                 addGenerationPrompt = false,
             )
             try {
@@ -215,9 +217,10 @@ class ChatAgent @Inject constructor(
         val raw = StringBuilder()
         var stats: GenerationStats? = null
         try {
+            val folders = folderContext(history.lastOrNull { it.role == ChatRole.USER }?.content)
             var window = trimToContext(history, mode)
             while (true) {
-                val prompt = buildPrompt(window, mode)
+                val prompt = buildPrompt(window, mode, folders)
                 val params = paramsFor(mode, prompt)
                 try {
                     llm.generate(prompt, params).collect { event ->
@@ -309,6 +312,7 @@ class ChatAgent @Inject constructor(
             status = if (result.success) ToolStatus.SUCCEEDED else ToolStatus.FAILED,
             resultMessage = result.message,
             resultData = result.data,
+            displayData = result.display,
         )
         chatRepository.updateToolInvocation(messageId, done)
         return done
@@ -336,11 +340,19 @@ class ChatAgent @Inject constructor(
     //  Prompt assembly
     // ------------------------------------------------------------------------------------------ //
 
-    internal fun buildPrompt(history: List<ChatMessage>, mode: InferenceMode): String {
+    /**
+     * @param folderContext appended to the latest user turn only (see [folderContext]), so earlier
+     * turns render identically on every request and the KV prefix cache keeps matching.
+     */
+    internal fun buildPrompt(history: List<ChatMessage>, mode: InferenceMode, folderContext: String? = null): String {
         val messages = mutableListOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant))
-        for (m in history) {
+        val lastUser = history.indexOfLast { it.role == ChatRole.USER }
+        for ((index, m) in history.withIndex()) {
             when (m.role) {
-                ChatRole.USER -> messages += PromptMessage(PromptMessage.Role.USER, renderUserTurn(m))
+                ChatRole.USER -> messages += PromptMessage(
+                    PromptMessage.Role.USER,
+                    renderUserTurn(m, folderContext.takeIf { index == lastUser }),
+                )
                 ChatRole.ASSISTANT -> {
                     if (m.status == MessageStatus.ERROR || m.status == MessageStatus.STREAMING) continue
                     if (m.content.isBlank() && m.toolCalls.isEmpty()) continue
@@ -355,13 +367,29 @@ class ChatAgent @Inject constructor(
                 ChatRole.TOOL -> Unit
             }
         }
-        return Qwen3PromptBuilder.build(messages, ToolDefinitions.all, enableThinking = mode == InferenceMode.REASONING)
+        // The tool set depends only on n_ctx, so it is identical across turns (prefix cache friendly).
+        return Qwen3PromptBuilder.build(messages, ToolDefinitions.forContext(llm.contextSize), enableThinking = mode == InferenceMode.REASONING)
     }
 
-    private fun renderUserTurn(m: ChatMessage): String {
+    private fun renderUserTurn(m: ChatMessage, folderContext: String? = null): String {
         val sentAt = Instant.ofEpochMilli(m.createdAt).atZone(ZoneId.systemDefault())
-        val base = m.content + "\n\n" + SystemPrompts.userTurnContext(sentAt)
+        val context = SystemPrompts.userTurnContext(sentAt) + folderContext?.let { " $it" }.orEmpty()
+        val base = m.content + "\n\n" + context
         return if (m.mode == InferenceMode.FAST_ACTION) base + " " + Qwen3PromptBuilder.NO_THINK else base
+    }
+
+    /**
+     * The user's custom folders, only when the request mentions one ("open my Work folder"):
+     * they are not in the static system prompt, so editing a folder never invalidates the
+     * prefix cache, and ordinary requests pay no extra tokens.
+     */
+    private suspend fun folderContext(userText: String?): String? {
+        val text = userText?.lowercase() ?: return null
+        val folders = runCatching { folderRepository.folders.first() }.getOrDefault(emptyList())
+        if (folders.isEmpty()) return null
+        val mentioned = "folder" in text || folders.any { it.name.lowercase() in text }
+        if (!mentioned) return null
+        return SystemPrompts.folderContext(folders.map { it.name to it.description })
     }
 
     private fun toolResponse(invocation: ToolInvocation): String {

@@ -6,10 +6,14 @@ import android.content.Intent
 import android.provider.AlarmClock
 import com.ailauncher.domain.action.ActionExecutor
 import com.ailauncher.domain.action.ActionResult
+import com.ailauncher.domain.action.LauncherDestination
+import com.ailauncher.domain.action.LauncherNavigator
 import com.ailauncher.domain.ai.DeviceSetting
 import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CategorySource
+import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.repository.FolderRepository
 import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.CategorizationScheduler
 import com.ailauncher.domain.repository.ReminderRepository
@@ -36,6 +40,9 @@ class AndroidActionExecutor @Inject constructor(
     private val categorizationScheduler: CategorizationScheduler,
     private val deviceSettings: DeviceSettingsController,
     private val agendaProvider: AgendaProvider,
+    private val launcherTools: LauncherToolExecutor,
+    private val folderRepository: FolderRepository,
+    private val navigator: LauncherNavigator,
 ) : ActionExecutor {
 
     override suspend fun execute(command: ToolCommand): ActionResult = when (command) {
@@ -46,6 +53,13 @@ class AndroidActionExecutor @Inject constructor(
         is ToolCommand.ToggleSetting -> toggle(command)
         ToolCommand.SortApps -> sortApps()
         ToolCommand.GetTodayAgenda -> agenda()
+        is ToolCommand.ListUnusedApps -> launcherTools.listUnusedApps(command)
+        is ToolCommand.FindLargestFiles -> launcherTools.findLargestFiles(command)
+        is ToolCommand.QueryFilesByActivity -> launcherTools.queryFiles(command)
+        is ToolCommand.ManageTodo -> launcherTools.manageTodo(command)
+        is ToolCommand.ManagePlanner -> launcherTools.managePlanner(command)
+        is ToolCommand.SummarizeNotifications -> launcherTools.summarizeNotifications(command)
+        is ToolCommand.ContactAction -> launcherTools.contactAction(command)
     }
 
     private suspend fun setAlarm(c: ToolCommand.SetAlarm): ActionResult {
@@ -87,10 +101,14 @@ class AndroidActionExecutor @Inject constructor(
     }
 
     private suspend fun launchApp(c: ToolCommand.LaunchApp): ActionResult {
+        // "open my Work folder" names a custom folder; a plain name prefers an app, then a folder.
+        val folder = folderRepository.findByName(c.appName)
+        if (folder != null && c.appName.contains("folder", ignoreCase = true)) return openFolder(folder)
         val apps = appRepository.apps.first().filter { !it.isHidden }
         val ranked = FuzzyMatcher.rank(c.appName, apps) { app -> listOf(app.label, app.systemLabel) + app.aliases }
         val best = ranked.firstOrNull()
         if (best == null || best.second < FuzzyMatcher.CONFIDENT_MATCH) {
+            if (folder != null) return openFolder(folder)
             val suggestions = ranked.take(3).joinToString { it.first.label }
             return ActionResult.fail(
                 if (suggestions.isEmpty()) "I couldn't find an app called \"${c.appName}\"."
@@ -105,6 +123,11 @@ class AndroidActionExecutor @Inject constructor(
                 ?.let { runCatching { context.startActivity(it) }.isSuccess } == true
         } || appRepository.launch(app)
         return if (launched) ActionResult.ok("Opening ${app.label}") else ActionResult.fail("${app.label} could not be opened.")
+    }
+
+    private fun openFolder(folder: CustomFolder): ActionResult {
+        navigator.navigate(LauncherDestination.Folder(folder.id))
+        return ActionResult.ok("Opened your ${folder.name} folder")
     }
 
     private fun toggle(c: ToolCommand.ToggleSetting): ActionResult = when (c.setting) {

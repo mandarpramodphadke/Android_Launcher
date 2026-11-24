@@ -1,6 +1,11 @@
 package com.ailauncher.domain.ai
 
 import com.ailauncher.domain.ai.ModelOutputParser.string
+import com.ailauncher.domain.model.ContactActionType
+import com.ailauncher.domain.model.FileActivityMode
+import com.ailauncher.domain.model.FileTypeFilter
+import com.ailauncher.domain.model.TodoItem
+import com.ailauncher.domain.model.TodoPriority
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -46,8 +51,21 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
             ToolNames.TOGGLE_SETTING, "toggle", "device_setting" -> toggleSetting(call.arguments)
             ToolNames.SORT_APPS, "organize_apps", "categorize_apps" ->
                 ToolRouting.Valid(ToolCommand.SortApps, summarize(ToolCommand.SortApps))
-            ToolNames.GET_TODAY_AGENDA, "get_agenda", "today_agenda" ->
-                ToolRouting.Valid(ToolCommand.GetTodayAgenda, summarize(ToolCommand.GetTodayAgenda))
+            ToolNames.GET_TODAY_AGENDA, "get_agenda", "today_agenda" -> valid(agenda(userText))
+            ToolNames.LIST_UNUSED_APPS, "unused_apps", "list_inactive_apps", "find_unused_apps", "get_unused_apps" ->
+                valid(listUnusedApps(call.arguments, userText))
+            ToolNames.FIND_LARGEST_FILES, "largest_files", "find_large_files", "biggest_files", "find_biggest_files" ->
+                valid(findLargestFiles(call.arguments))
+            ToolNames.QUERY_FILES_BY_ACTIVITY, "query_files", "find_files", "search_files", "files_by_date" ->
+                valid(queryFiles(call.arguments, userText))
+            ToolNames.MANAGE_TODO, "todo", "todos", "manage_todos", "add_todo", "add_task", "task", "tasks", "manage_tasks" ->
+                valid(manageTodo(call.arguments, call.name, userText))
+            ToolNames.MANAGE_PLANNER, "planner", "plan_day", "schedule_block", "day_plan", "get_day_plan" ->
+                valid(managePlanner(call.arguments, call.name, userText))
+            ToolNames.SUMMARIZE_NOTIFICATIONS, "get_notifications", "read_notifications", "notifications", "notification_digest" ->
+                valid(ToolCommand.SummarizeNotifications(call.arguments.firstString("appName", "app_name", "app")?.takeUnless { it.lowercase(Locale.ROOT) in ALL_APPS }))
+            ToolNames.CONTACT_ACTION, "call_contact", "call", "send_sms", "send_message", "sms", "whatsapp", "text_contact", "message_contact" ->
+                valid(contactAction(call.arguments, call.name))
             else -> ToolRouting.Invalid(call.name, "Unknown tool \"${call.name}\"")
         }
     } catch (e: IllegalArgumentException) {
@@ -115,6 +133,207 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
         return ToolRouting.Valid(ToolCommand.ToggleSetting(setting, state), "$verb ${setting.displayName}")
     }
 
+    private fun valid(command: ToolCommand) = ToolRouting.Valid(command, summarize(command))
+
+    /** "What's on tomorrow?" with get_today_agenda: that day's plan (it includes calendar events). */
+    private fun agenda(userText: String?): ToolCommand {
+        val today = now().toLocalDate()
+        val day = userText?.let { ArgumentGrounding.mentionedDay(it, today) }
+        return if (day != null && day != today) ToolCommand.ManagePlanner(PlannerAction.GET_DAY_PLAN, day) else ToolCommand.GetTodayAgenda
+    }
+
+    private fun listUnusedApps(args: JsonObject, userText: String?): ToolCommand {
+        val days = userText?.let(ArgumentGrounding::mentionedDays)
+            ?: args.int("inactiveDays") ?: args.int("inactive_days") ?: args.int("days") ?: args.int("unusedDays")
+        days?.let { require(it in 1..3650) { "Days must be between 1 and 3650" } }
+        return ToolCommand.ListUnusedApps(days)
+    }
+
+    private fun findLargestFiles(args: JsonObject): ToolCommand {
+        val limit = (args.int("limit") ?: args.int("count") ?: args.int("top") ?: DEFAULT_FILE_LIMIT).coerceIn(1, MAX_FILE_LIMIT)
+        val type = FileTypeFilter.fromWire(args.firstString("fileType", "file_type", "type", "kind")) ?: FileTypeFilter.ALL
+        return ToolCommand.FindLargestFiles(limit, type)
+    }
+
+    private fun queryFiles(args: JsonObject, userText: String?): ToolCommand {
+        val today = now().toLocalDate()
+        var unusedDays = args.int("unusedDays") ?: args.int("unused_days") ?: args.int("days") ?: args.int("olderThanDays")
+        var start = args.firstString("startDateIso", "start_date_iso", "startDate", "start_date", "from", "since")
+            ?.let { dayArg(it, today, preferFuture = false) }
+        var end = args.firstString("endDateIso", "end_date_iso", "endDate", "end_date", "to", "until")
+            ?.let { dayArg(it, today, preferFuture = false) }
+        args.firstString("range", "period", "when", "date", "dateRange")?.let { phrase ->
+            DateRangeParser.parse(phrase, today)?.let { span ->
+                if (start == null) start = span.start
+                if (end == null) end = span.endInclusive
+            }
+        }
+        // The user's own words decide the mode and dates when they are explicit.
+        val spoken = userText?.let {
+            when {
+                ArgumentGrounding.mentionsUnused(it) -> FileActivityMode.UNUSED_SINCE
+                ArgumentGrounding.mentionsDownload(it) -> FileActivityMode.DOWNLOADED
+                ArgumentGrounding.mentionsOpened(it) -> FileActivityMode.OPENED_OR_CLICKED
+                else -> null
+            }
+        }
+        val mode = spoken ?: FileActivityMode.fromWire(args.firstString("filterMode", "filter_mode", "mode", "filter"))
+            ?: when {
+                unusedDays != null -> FileActivityMode.UNUSED_SINCE
+                start != null || end != null -> FileActivityMode.MODIFIED_RANGE
+                else -> throw IllegalArgumentException("Should I look for unused, downloaded, opened or modified files?")
+            }
+        if (userText != null) {
+            if (mode == FileActivityMode.UNUSED_SINCE) {
+                ArgumentGrounding.mentionedDays(userText)?.let { unusedDays = it }
+            } else {
+                ArgumentGrounding.mentionedRange(userText, today)?.let { span ->
+                    start = span.start
+                    end = span.endInclusive
+                }
+            }
+        }
+        val type = FileTypeFilter.fromWire(args.firstString("fileType", "file_type", "type", "kind")) ?: FileTypeFilter.ALL
+        if (mode == FileActivityMode.UNUSED_SINCE) {
+            unusedDays?.let { require(it in 1..3650) { "Days must be between 1 and 3650" } }
+            return ToolCommand.QueryFilesByActivity(mode, unusedDays, null, null, type)
+        }
+        // Ranges: default to the last 7 days, never end in the future, and accept reversed bounds.
+        var from = start ?: end?.minusDays(DEFAULT_RANGE_DAYS - 1) ?: today.minusDays(DEFAULT_RANGE_DAYS - 1)
+        var to = end ?: today
+        if (from.isAfter(to)) {
+            val swap = from
+            from = to
+            to = swap
+        }
+        if (to.isAfter(today)) to = today
+        if (from.isAfter(to)) from = to
+        return ToolCommand.QueryFilesByActivity(mode, null, from, to, type)
+    }
+
+    private fun manageTodo(args: JsonObject, toolName: String, userText: String?): ToolCommand {
+        val title = args.firstString("title", "task", "text", "item", "name", "todo")?.trim()?.take(200)?.takeIf { it.isNotEmpty() }
+        val action = TodoAction.fromWire(args.firstString("action", "operation", "op"))
+            ?: when (toolName.lowercase(Locale.ROOT)) {
+                "add_todo", "add_task" -> TodoAction.ADD
+                else -> if (title != null) TodoAction.ADD else TodoAction.LIST
+            }
+        val listName = (userText?.let(ArgumentGrounding::mentionedList) ?: args.firstString("listName", "list_name", "list", "category"))
+            ?.trim()?.takeIf { it.isNotEmpty() }?.let(::normalizeListName)
+        val priority = TodoPriority.fromWire(args.firstString("priority", "importance"))
+        val due = userText?.let(::spokenDueTime)
+            ?: args.long("dueTimestampMillis")?.takeIf { it > 0 }
+            ?: args.firstString("dueIso", "due_iso", "due", "dueDate", "due_date", "deadline", "when")
+                ?.let { parseDateTime(it, now()) ?: throw IllegalArgumentException("I couldn't understand the due date \"$it\"") }
+                ?.toInstant()?.toEpochMilli()
+        val id = args.long("todoId") ?: args.long("todo_id") ?: args.long("id")
+        when (action) {
+            TodoAction.ADD -> requireNotNull(title) { "What should the task say?" }
+            TodoAction.COMPLETE, TodoAction.DELETE -> require(id != null || title != null) { "Which task?" }
+            TodoAction.LIST -> Unit
+        }
+        return when (action) {
+            TodoAction.ADD -> ToolCommand.ManageTodo(action, title, listName ?: TodoItem.DEFAULT_LIST, priority ?: TodoPriority.MEDIUM, due, null)
+            TodoAction.LIST -> ToolCommand.ManageTodo(action, listName = listName)
+            else -> ToolCommand.ManageTodo(action, title = title, todoId = id)
+        }
+    }
+
+    private fun managePlanner(args: JsonObject, toolName: String, userText: String?): ToolCommand {
+        val current = now()
+        val today = current.toLocalDate()
+        val title = args.firstString("title", "name", "task", "activity", "what")?.trim()?.take(120)?.takeIf { it.isNotEmpty() }
+        var date = args.firstString("dateIso", "date_iso", "date", "day")
+            ?.let { dayArg(it, today, preferFuture = true) ?: throw IllegalArgumentException("I couldn't understand the date \"$it\"") }
+        val startText = args.firstString("startTime", "start_time", "start", "time", "at")
+        var startMinutes: Int? = null
+        if (startText != null) {
+            val dateTime = runCatching { LocalDateTime.parse(startText.trim().replace(' ', 'T')) }.getOrNull()
+            if (dateTime != null) {
+                if (date == null) date = dateTime.toLocalDate()
+                startMinutes = dateTime.hour * 60 + dateTime.minute
+            } else {
+                val time = parseClockTime(startText) ?: throw IllegalArgumentException("I couldn't understand the time \"$startText\"")
+                startMinutes = time.hour * 60 + time.minute
+            }
+        }
+        val endMinutes = args.firstString("endTime", "end_time", "end")?.let(::parseClockTime)?.let { it.hour * 60 + it.minute }
+        var duration = args.int("durationMinutes") ?: args.int("duration_minutes") ?: args.int("minutes")
+            ?: args.string("duration")?.let { parseDuration(it)?.let { s -> (s / 60).toInt() } }
+            ?: args.long("hours")?.let { (it * 60).toInt() }
+        if (duration == null && startMinutes != null && endMinutes != null && endMinutes > startMinutes) duration = endMinutes - startMinutes
+        if (userText != null) {
+            ArgumentGrounding.mentionedDay(userText, today)?.let { date = it }
+            // Only an unambiguous single time ("at 3pm") replaces the model's; "3 to 5pm" is left to it.
+            val lower = userText.lowercase(Locale.ROOT)
+            if (!TIME_RANGE.containsMatchIn(lower) && TIME_MENTIONS.findAll(lower).count() == 1) {
+                ArgumentGrounding.mentionedTime(userText)?.let { startMinutes = it.hour * 60 + it.minute }
+            }
+            ArgumentGrounding.mentionedDurationMinutes(userText)?.let { duration = it }
+        }
+        val blockId = args.long("blockId") ?: args.long("block_id") ?: args.long("id")
+        val action = PlannerAction.fromWire(args.firstString("action", "operation", "op"))
+            ?: when {
+                toolName.equals("schedule_block", ignoreCase = true) -> PlannerAction.SCHEDULE_BLOCK
+                toolName.equals("get_day_plan", ignoreCase = true) -> PlannerAction.GET_DAY_PLAN
+                title != null && startMinutes != null -> PlannerAction.SCHEDULE_BLOCK
+                else -> PlannerAction.GET_DAY_PLAN
+            }
+        duration?.let { require(it in MIN_BLOCK_MINUTES..MAX_BLOCK_MINUTES) { "Blocks can be 5 minutes to 12 hours long" } }
+        return when (action) {
+            PlannerAction.SCHEDULE_BLOCK -> {
+                requireNotNull(title) { "What is the time block for?" }
+                val start = requireNotNull(startMinutes) { "What time should it start?" }
+                val length = duration ?: DEFAULT_BLOCK_MINUTES
+                require(start + length <= 24 * 60) { "The block has to end by midnight" }
+                ToolCommand.ManagePlanner(action, date ?: today, start, length, title, null)
+            }
+            PlannerAction.RESCHEDULE -> {
+                require(blockId != null || title != null) { "Which block should I move?" }
+                require(date != null || startMinutes != null || duration != null) { "When should it move to?" }
+                ToolCommand.ManagePlanner(action, date, startMinutes, duration, title, blockId)
+            }
+            PlannerAction.REMOVE_BLOCK -> {
+                require(blockId != null || title != null) { "Which block should I remove?" }
+                ToolCommand.ManagePlanner(action, date, null, null, title, blockId)
+            }
+            PlannerAction.GET_DAY_PLAN -> ToolCommand.ManagePlanner(action, date ?: today)
+        }
+    }
+
+    private fun contactAction(args: JsonObject, toolName: String): ToolCommand {
+        val action = ContactActionType.fromWire(args.firstString("action", "type", "method", "via"))
+            ?: when (toolName.lowercase(Locale.ROOT)) {
+                "call", "call_contact" -> ContactActionType.CALL
+                "send_sms", "sms", "text_contact", "send_message", "message_contact" -> ContactActionType.SMS
+                "whatsapp" -> ContactActionType.WHATSAPP
+                else -> null
+            }
+            ?: throw IllegalArgumentException("Should I call, text or WhatsApp them?")
+        val name = args.firstString("contactName", "contact_name", "contact", "name", "to", "recipient", "person")?.trim()
+            ?.takeIf { it.isNotEmpty() } ?: throw IllegalArgumentException("Who should I contact?")
+        val message = args.firstString("message", "text", "body", "content")?.trim()?.take(MAX_MESSAGE_CHARS)?.takeIf { it.isNotEmpty() }
+        return ToolCommand.ContactAction(action, name.take(80), if (action == ContactActionType.CALL) null else message)
+    }
+
+    /** A due time spoken in the request ("tomorrow at 5pm", "friday", "at 6pm"), else null. */
+    private fun spokenDueTime(userText: String): Long? {
+        val current = now()
+        val day = ArgumentGrounding.mentionedDay(userText, current.toLocalDate())
+        val time = ArgumentGrounding.mentionedTime(userText)
+        if (day == null && time == null) return null
+        var at = (day ?: current.toLocalDate()).atTime(time ?: LocalTime.of(9, 0)).atZone(current.zone)
+        if (day == null && at.isBefore(current)) at = at.plusDays(1)
+        return at.toInstant().toEpochMilli()
+    }
+
+    /** "2026-11-24", "tomorrow", "friday", "nov 3"; null if unparseable. */
+    private fun dayArg(text: String, today: LocalDate, preferFuture: Boolean): LocalDate? =
+        DateRangeParser.parseDay(text, today, preferFuture)
+
+    private fun normalizeListName(name: String): String =
+        name.trim().removeSuffix(" list").removeSuffix(" List").trim().replaceFirstChar { it.titlecase(Locale.getDefault()) }
+
     // ---------------------------------------------------------------------------------------- //
 
     /**
@@ -146,6 +365,14 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
             if (candidate.isBefore(current)) candidate = candidate.plusDays(1)
             return candidate
         }
+        // "tomorrow", "friday 5pm", "nov 3 at 14:30" (day words first, then an optional time).
+        val lower = text.trim().lowercase(Locale.ROOT)
+        DAY_AND_TIME.matchEntire(lower)?.let { m ->
+            val day = DateRangeParser.parseDay(m.groupValues[1], current.toLocalDate(), preferFuture = true) ?: return@let
+            val time = parseClockTime(m.groupValues[2]) ?: return@let
+            return day.atTime(time).atZone(current.zone)
+        }
+        DateRangeParser.parseDay(lower, current.toLocalDate(), preferFuture = true)?.let { return it.atTime(9, 0).atZone(current.zone) }
         return null
     }
 
@@ -212,6 +439,16 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
         }
         ToolCommand.SortApps -> "Organize apps into smart categories"
         ToolCommand.GetTodayAgenda -> "Check today's schedule"
+        is ToolCommand.ListUnusedApps -> "Find apps unused for ${command.inactiveDays?.let { "$it days" } ?: "a while"}"
+        is ToolCommand.FindLargestFiles -> "Find the ${command.limit} largest ${command.fileType.displayName}"
+        is ToolCommand.QueryFilesByActivity -> filesSummary(command)
+        is ToolCommand.ManageTodo -> todoSummary(command)
+        is ToolCommand.ManagePlanner -> plannerSummary(command)
+        is ToolCommand.SummarizeNotifications -> command.appName?.let { "Read notifications from $it" } ?: "Read today's notifications"
+        is ToolCommand.ContactAction -> listOfNotNull(
+            "${command.action.verb} ${command.contactName}",
+            command.message?.let { "\u201c${it.take(60)}${if (it.length > 60) "…" else ""}\u201d" },
+        ).joinToString(" · ")
     }
 
     /** Canonical argument object that [route] maps back to exactly the same command. */
@@ -237,6 +474,99 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
                 put("state", command.state.name.lowercase(Locale.ROOT))
             }
             ToolCommand.SortApps, ToolCommand.GetTodayAgenda -> Unit
+            is ToolCommand.ListUnusedApps -> command.inactiveDays?.let { put("inactiveDays", it) }
+            is ToolCommand.FindLargestFiles -> {
+                put("limit", command.limit)
+                put("fileType", command.fileType.wireName)
+            }
+            is ToolCommand.QueryFilesByActivity -> {
+                put("filterMode", command.mode.wireName)
+                command.unusedDays?.let { put("unusedDays", it) }
+                command.startDate?.let { put("startDateIso", it.toString()) }
+                command.endDate?.let { put("endDateIso", it.toString()) }
+                put("fileType", command.fileType.wireName)
+            }
+            is ToolCommand.ManageTodo -> {
+                put("action", command.action.wireName)
+                command.title?.let { put("title", it) }
+                command.listName?.let { put("listName", it) }
+                command.priority?.let { put("priority", it.wireName) }
+                command.dueAtMillis?.let { put("dueTimestampMillis", it) }
+                command.todoId?.let { put("todoId", it) }
+            }
+            is ToolCommand.ManagePlanner -> {
+                put("action", command.action.wireName)
+                command.date?.let { put("dateIso", it.toString()) }
+                command.startMinutes?.let { put("startTime", "%02d:%02d".format(Locale.ROOT, it / 60, it % 60)) }
+                command.durationMinutes?.let { put("durationMinutes", it) }
+                command.title?.let { put("title", it) }
+                command.blockId?.let { put("blockId", it) }
+            }
+            is ToolCommand.SummarizeNotifications -> command.appName?.let { put("appName", it) }
+            is ToolCommand.ContactAction -> {
+                put("action", command.action.wireName)
+                put("contactName", command.contactName)
+                command.message?.let { put("message", it) }
+            }
+        }
+    }
+
+    private val dayFormatter = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
+
+    private fun dayLabel(date: LocalDate): String {
+        val today = now().toLocalDate()
+        return when (date) {
+            today -> "today"
+            today.plusDays(1) -> "tomorrow"
+            today.minusDays(1) -> "yesterday"
+            else -> date.format(dayFormatter)
+        }
+    }
+
+    private fun filesSummary(c: ToolCommand.QueryFilesByActivity): String {
+        val what = c.fileType.displayName.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        return when (c.mode) {
+            FileActivityMode.UNUSED_SINCE -> "$what untouched for ${c.unusedDays?.let { "$it days" } ?: "a while"}"
+            FileActivityMode.DOWNLOADED -> "$what downloaded ${rangeLabel(c)}"
+            FileActivityMode.OPENED_OR_CLICKED -> "$what opened ${rangeLabel(c)}"
+            FileActivityMode.MODIFIED_RANGE -> "$what changed ${rangeLabel(c)}"
+        }
+    }
+
+    private fun rangeLabel(c: ToolCommand.QueryFilesByActivity): String {
+        val start = c.startDate ?: return ""
+        val end = c.endDate ?: start
+        return if (start == end) dayLabel(start) else "${dayLabel(start)} – ${dayLabel(end)}"
+    }
+
+    private fun todoSummary(c: ToolCommand.ManageTodo): String = when (c.action) {
+        TodoAction.ADD -> listOfNotNull(
+            "Add to-do · ${c.title}",
+            c.listName?.takeIf { it != TodoItem.DEFAULT_LIST },
+            c.priority?.takeIf { it == TodoPriority.HIGH }?.let { "high priority" },
+            c.dueAtMillis?.let { "due " + Instant.ofEpochMilli(it).atZone(now().zone).let { at -> "${dayLabel(at.toLocalDate())} ${at.format(timeFormatter)}" } },
+        ).joinToString(" · ")
+        TodoAction.COMPLETE -> "Mark done · ${c.title ?: "task #${c.todoId}"}"
+        TodoAction.DELETE -> "Delete to-do · ${c.title ?: "task #${c.todoId}"}"
+        TodoAction.LIST -> c.listName?.let { "Show the $it list" } ?: "Show your to-dos"
+    }
+
+    private fun plannerSummary(c: ToolCommand.ManagePlanner): String {
+        fun time(minutes: Int) = LocalTime.of(minutes / 60 % 24, minutes % 60).format(timeFormatter)
+        return when (c.action) {
+            PlannerAction.SCHEDULE_BLOCK -> {
+                val start = c.startMinutes ?: 0
+                val end = start + (c.durationMinutes ?: DEFAULT_BLOCK_MINUTES)
+                "Plan · ${c.date?.let(::dayLabel)?.replaceFirstChar { it.titlecase(Locale.getDefault()) }} ${time(start)}–${time(end)} · ${c.title}"
+            }
+            PlannerAction.RESCHEDULE -> listOfNotNull(
+                "Move · ${c.title ?: "block #${c.blockId}"}",
+                c.date?.let(::dayLabel),
+                c.startMinutes?.let(::time),
+                c.durationMinutes?.let { "$it min" },
+            ).joinToString(" · ")
+            PlannerAction.REMOVE_BLOCK -> "Remove block · ${c.title ?: "#${c.blockId}"}"
+            PlannerAction.GET_DAY_PLAN -> "Show the plan for ${c.date?.let(::dayLabel) ?: "today"}"
         }
     }
 
@@ -276,6 +606,18 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
         private val REPEAT_HINT = Regex(
             """\b(every|daily|each|repeat\w*|weekdays?|weekends?|(mon|tues|wednes|thurs|fri|satur|sun)days?|mon|tue|wed|thu|fri|sat|sun)\b""",
         )
+        private val DAY_AND_TIME = Regex("""^(.+?)\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)$""")
+        private val TIME_MENTIONS = Regex("""\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b(?:[01]?\d|2[0-3]):[0-5]\d\b|\bnoon\b""")
+        /** "from 3 to 5pm", "3-5pm", "between 9 and 11": a range, not a start time. */
+        private val TIME_RANGE = Regex("""\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to|until|till|and)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b""")
+        private val ALL_APPS = setOf("all", "any", "everything", "every app", "all apps", "notifications", "none", "null")
+        private const val DEFAULT_FILE_LIMIT = 15
+        private const val MAX_FILE_LIMIT = 50
+        private const val DEFAULT_RANGE_DAYS = 7L
+        const val DEFAULT_BLOCK_MINUTES = 60
+        private const val MIN_BLOCK_MINUTES = 5
+        private const val MAX_BLOCK_MINUTES = 12 * 60
+        private const val MAX_MESSAGE_CHARS = 1000
         private val DURATION_PART = Regex("""(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b""")
 
         fun calendarDayShortName(day: Int): String =
@@ -287,6 +629,9 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
         }
 
         private fun JsonObject.int(key: String): Int? = long(key)?.toInt()
+
+        private fun JsonObject.firstString(vararg keys: String): String? =
+            keys.firstNotNullOfOrNull { key -> string(key)?.trim()?.takeIf { it.isNotEmpty() && it != "null" } }
 
     }
 }

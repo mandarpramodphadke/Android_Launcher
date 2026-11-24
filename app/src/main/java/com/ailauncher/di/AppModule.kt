@@ -13,12 +13,41 @@ import com.ailauncher.data.llm.LocalLlmEngine
 import com.ailauncher.data.local.AppDatabase
 import com.ailauncher.data.local.dao.AppDao
 import com.ailauncher.data.local.dao.ChatDao
+import com.ailauncher.data.local.dao.FileAccessDao
+import com.ailauncher.data.local.dao.FolderDao
+import com.ailauncher.data.local.dao.HomeItemDao
+import com.ailauncher.data.local.dao.NotificationDao
+import com.ailauncher.data.local.dao.PlannerDao
 import com.ailauncher.data.local.dao.ReminderDao
+import com.ailauncher.data.local.dao.TodoDao
 import com.ailauncher.data.packages.PackageRepository
 import com.ailauncher.data.preferences.DataStoreSettingsRepository
 import com.ailauncher.data.reminders.ReminderRepositoryImpl
 import com.ailauncher.data.reminders.UpcomingEventsProviderImpl
+import com.ailauncher.data.contacts.ContactRepositoryImpl
+import com.ailauncher.data.files.FileRepositoryImpl
+import com.ailauncher.data.home.DockRepositoryImpl
+import com.ailauncher.data.home.FolderRepositoryImpl
+import com.ailauncher.data.home.HomeLayoutRepositoryImpl
+import com.ailauncher.data.notifications.NotificationDigestRepositoryImpl
+import com.ailauncher.data.packages.AppLauncher
+import com.ailauncher.data.packages.ShortcutRepositoryImpl
+import com.ailauncher.data.productivity.PlannerRepositoryImpl
+import com.ailauncher.data.productivity.TodoRepositoryImpl
+import com.ailauncher.data.usage.AppUsageRepositoryImpl
 import com.ailauncher.domain.action.ActionExecutor
+import com.ailauncher.domain.action.LauncherNavigator
+import com.ailauncher.domain.repository.AppUsageRepository
+import com.ailauncher.domain.repository.ContactRepository
+import com.ailauncher.domain.repository.DockRepository
+import com.ailauncher.domain.repository.FileRepository
+import com.ailauncher.domain.repository.FolderRepository
+import com.ailauncher.domain.repository.HomeLayoutRepository
+import com.ailauncher.domain.repository.NotificationDigestRepository
+import com.ailauncher.domain.repository.PlannerRepository
+import com.ailauncher.domain.repository.ShortcutRepository
+import com.ailauncher.domain.repository.TodoRepository
+import com.ailauncher.presentation.navigation.LauncherNavigatorImpl
 import com.ailauncher.domain.ai.LlmEngine
 import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.AuthRepository
@@ -74,7 +103,9 @@ object AppModule {
     @Singleton
     fun database(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.NAME)
-            // v1 schema; future versions ship explicit migrations (schemas/ is exported for that).
+            // Upgrades keep every row through explicit migrations (schemas/ is exported and the
+            // migration is tested); only an app downgrade starts from a clean database.
+            .addMigrations(*AppDatabase.MIGRATIONS)
             .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
             .build()
 
@@ -86,6 +117,24 @@ object AppModule {
 
     @Provides
     fun reminderDao(db: AppDatabase): ReminderDao = db.reminderDao()
+
+    @Provides
+    fun homeItemDao(db: AppDatabase): HomeItemDao = db.homeItemDao()
+
+    @Provides
+    fun folderDao(db: AppDatabase): FolderDao = db.folderDao()
+
+    @Provides
+    fun todoDao(db: AppDatabase): TodoDao = db.todoDao()
+
+    @Provides
+    fun plannerDao(db: AppDatabase): PlannerDao = db.plannerDao()
+
+    @Provides
+    fun fileAccessDao(db: AppDatabase): FileAccessDao = db.fileAccessDao()
+
+    @Provides
+    fun notificationDao(db: AppDatabase): NotificationDao = db.notificationDao()
 }
 
 @Module
@@ -102,4 +151,18 @@ abstract class BindingsModule {
     @Binds abstract fun actionExecutor(impl: AndroidActionExecutor): ActionExecutor
     @Binds abstract fun categorizationScheduler(impl: WorkManagerCategorizationScheduler): CategorizationScheduler
     @Binds abstract fun upcomingEvents(impl: UpcomingEventsProviderImpl): UpcomingEventsProvider
+
+    // v2: home pages, folders, dock, productivity, storage insights, notifications, contacts
+    @Binds abstract fun homeLayoutRepository(impl: HomeLayoutRepositoryImpl): HomeLayoutRepository
+    @Binds abstract fun folderRepository(impl: FolderRepositoryImpl): FolderRepository
+    @Binds abstract fun dockRepository(impl: DockRepositoryImpl): DockRepository
+    @Binds abstract fun todoRepository(impl: TodoRepositoryImpl): TodoRepository
+    @Binds abstract fun plannerRepository(impl: PlannerRepositoryImpl): PlannerRepository
+    @Binds abstract fun appUsageRepository(impl: AppUsageRepositoryImpl): AppUsageRepository
+    @Binds abstract fun fileRepository(impl: FileRepositoryImpl): FileRepository
+    @Binds abstract fun notificationDigestRepository(impl: NotificationDigestRepositoryImpl): NotificationDigestRepository
+    @Binds abstract fun contactRepository(impl: ContactRepositoryImpl): ContactRepository
+    @Binds abstract fun shortcutRepository(impl: ShortcutRepositoryImpl): ShortcutRepository
+    @Binds abstract fun appLauncher(impl: PackageRepository): AppLauncher
+    @Binds abstract fun launcherNavigator(impl: LauncherNavigatorImpl): LauncherNavigator
 }

@@ -87,7 +87,7 @@ class LocalLlmEngine @Inject constructor(
     @Volatile private var handle = 0L
     @Volatile private var loadedConfig: ModelConfig? = null
     @Volatile private var runtimeInfo: ModelRuntimeInfo? = null
-    @Volatile private var configuredContext = ModelConfig.DEFAULT_CONTEXT
+    @Volatile private var configuredContext = ModelConfig().resolvedContextSize(deviceResources.memoryInfo().totalMem)
     @Volatile private var autoUnloadMinutes = ModelConfig().autoUnloadMinutes
     @Volatile private var watchdog: Job? = null
 
@@ -95,12 +95,12 @@ class LocalLlmEngine @Inject constructor(
     @Volatile private var backgroundRunning = false
     @Volatile private var preempted = false
 
-    override val contextSize: Int get() = loadedConfig?.contextSize ?: configuredContext
+    override val contextSize: Int get() = loadedConfig?.effectiveContext() ?: configuredContext
 
     init {
         scope.launch {
             settingsRepository.modelConfig.collect { config ->
-                configuredContext = config.contextSize
+                configuredContext = config.effectiveContext()
                 if (autoUnloadMinutes != config.autoUnloadMinutes) {
                     autoUnloadMinutes = config.autoUnloadMinutes
                     if (handle != 0L && !mutex.isLocked) scheduleWatchdog()
@@ -279,7 +279,7 @@ class LocalLlmEngine @Inject constructor(
             withContext(inferenceDispatcher + NonCancellable) {
                 LlamaNative.loadModel(
                     path = file.absolutePath,
-                    nCtx = config.contextSize,
+                    nCtx = config.effectiveContext(),
                     nThreads = threads,
                     nBatch = N_BATCH,
                     useMmap = config.useMmap,
@@ -316,6 +316,9 @@ class LocalLlmEngine @Inject constructor(
         Log.i(TAG, "Model unloaded")
     }
 
+    /** Auto resolves from the phone's total RAM (stable for the device). */
+    private fun ModelConfig.effectiveContext(): Int = resolvedContextSize(deviceResources.memoryInfo().totalMem)
+
     private fun ModelConfig.requiresReload(other: ModelConfig) =
         contextSize != other.contextSize || useMmap != other.useMmap || quantizeKvCache != other.quantizeKvCache
 
@@ -326,7 +329,7 @@ class LocalLlmEngine @Inject constructor(
     private fun estimateRequiredBytes(file: File, config: ModelConfig): Long {
         val weights = if (config.useMmap) (file.length() * 0.8).toLong() else file.length()
         val kvPerToken = maxOf(QWEN3_1_7B_KV_BYTES_PER_TOKEN, file.length() / 9_600)
-        val kv = (kvPerToken * config.contextSize * if (config.quantizeKvCache) 0.53 else 1.0).toLong()
+        val kv = (kvPerToken * config.effectiveContext() * if (config.quantizeKvCache) 0.53 else 1.0).toLong()
         return weights + kv + COMPUTE_BUFFER_BYTES + SAFETY_MARGIN_BYTES
     }
 

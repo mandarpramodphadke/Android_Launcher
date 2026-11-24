@@ -9,7 +9,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 enum class DrawerLayout { GRID, LIST }
 
 @Serializable
-enum class DrawerTab { ALPHABETICAL, CATEGORIES }
+enum class DrawerTab { ALPHABETICAL, CATEGORIES, FOLDERS }
 
 /** Colour themes. [supportsLight] is false for themes that are always dark. */
 @Serializable
@@ -54,7 +54,19 @@ data class LauncherSettings(
     val iconStyle: IconStyle = IconStyle.ORIGINAL,
     val drawerLayout: DrawerLayout = DrawerLayout.GRID,
     val drawerTab: DrawerTab = DrawerTab.ALPHABETICAL,
+    /** App drawer grid columns (4 or 5). */
     val gridColumns: Int = 4,
+    /** Home screen page grid columns (4 or 5). */
+    val homeGridColumns: Int = 4,
+    /** Default for "apps I haven't used": the list_unused_apps tool and storage insights. */
+    val unusedAppThresholdDays: Int = 30,
+    /** Default for "old files": query_files_by_activity(unused_since). */
+    val staleFileThresholdDays: Int = 90,
+    /** Opt-in: keep notifications (on this phone only, 24 h) for the digest, badges and smart pills. */
+    val notificationDigestEnabled: Boolean = false,
+    val notificationBadges: Boolean = true,
+    /** Predicted apps strip at the top of the drawer. */
+    val showSuggestedApps: Boolean = true,
     val use24HourClock: Boolean? = null,
     val doubleTapToLock: Boolean = true,
     val swipeDownForNotifications: Boolean = true,
@@ -67,7 +79,10 @@ data class LauncherSettings(
 /** On-device model runtime configuration (persisted in DataStore, included in backups). */
 @Serializable
 data class ModelConfig(
-    /** llama.cpp n_ctx. 2048 keeps the KV cache ~120 MB (q8_0); 4096 doubles it. */
+    /**
+     * llama.cpp n_ctx, or [AUTO_CONTEXT]: 4096 on phones with ~6 GB of RAM or more (the full tool
+     * set needs it), 2048 below that. 2048 keeps the KV cache ~120 MB (q8_0); 4096 doubles it.
+     */
     val contextSize: Int = DEFAULT_CONTEXT,
     /** 0 = auto-detect the performance cores (usually 4). */
     val threads: Int = 0,
@@ -77,10 +92,29 @@ data class ModelConfig(
     val quantizeKvCache: Boolean = true,
     /** Start chats in Reasoning (thinking) mode instead of Fast Action mode. */
     val reasoningByDefault: Boolean = false,
+    /** Catalog id (e.g. "qwen3-1.7b-q4_k_m") or "imported:<file name>" of the model to run. */
+    val activeModelId: String = DEFAULT_MODEL_ID,
+    /**
+     * Offload layers to the GPU through Vulkan. Off by default (CPU only is the safe choice):
+     * mobile GPU drivers vary a lot, so the engine falls back to the CPU if Vulkan fails.
+     */
+    val gpuOffload: Boolean = false,
 ) {
+    /** The n_ctx to load with on a phone that has [totalRamBytes] of RAM. */
+    fun resolvedContextSize(totalRamBytes: Long): Int = when {
+        contextSize != AUTO_CONTEXT -> contextSize
+        totalRamBytes >= LARGE_CONTEXT_MIN_RAM_BYTES -> 4096
+        else -> 2048
+    }
+
     companion object {
-        const val DEFAULT_CONTEXT = 2048
-        val CONTEXT_OPTIONS = listOf(2048, 4096)
+        const val DEFAULT_MODEL_ID = "qwen3-1.7b-q4_k_m"
+        const val AUTO_CONTEXT = 0
+        const val DEFAULT_CONTEXT = AUTO_CONTEXT
+        val CONTEXT_OPTIONS = listOf(AUTO_CONTEXT, 2048, 4096)
+
+        /** RAM from which Auto picks the 4096-token context ("6 GB" phones report a little less). */
+        const val LARGE_CONTEXT_MIN_RAM_BYTES = 5_500_000_000L
         val AUTO_UNLOAD_OPTIONS = listOf(1, 3, 5, 10, 0)
     }
 }

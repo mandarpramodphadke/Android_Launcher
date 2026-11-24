@@ -55,6 +55,6 @@ class SettingsPreferencesTest {
         val settings = prefs.toLauncherSettings()
         assertThat(settings.appTheme).isEqualTo(AppTheme.MATERIAL_YOU)
         assertThat(settings.iconStyle).isEqualTo(IconStyle.ORIGINAL)
-        assertThat(settings.gridColumns).isEqualTo(6)
+        assertThat(settings.gridColumns).isEqualTo(5)
     }
 }

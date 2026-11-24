@@ -219,7 +219,7 @@ fun SettingsScreen(
                 item {
                     SegmentedSetting(
                         title = "App grid columns",
-                        options = (3..6).map { it to it.toString() },
+                        options = (4..5).map { it to it.toString() },
                         selected = state.settings.gridColumns,
                         onSelect = { columns -> viewModel.updateSettings { it.copy(gridColumns = columns) } },
                     )
@@ -288,7 +288,13 @@ fun SettingsScreen(
             item {
                 ChoiceSetting(
                     title = "Context window",
-                    options = ModelConfig.CONTEXT_OPTIONS.map { it to "$it tokens" + if (it == 4096) " (more RAM)" else "" },
+                    options = ModelConfig.CONTEXT_OPTIONS.map {
+                        it to when (it) {
+                            ModelConfig.AUTO_CONTEXT -> "Auto (4096 on phones with 6 GB+ RAM)"
+                            4096 -> "4096 tokens (all AI tools, more RAM)"
+                            else -> "$it tokens (core AI tools)"
+                        }
+                    },
                     selected = state.modelConfig.contextSize,
                     onSelect = { size -> viewModel.updateModelConfig { it.copy(contextSize = size) } },
                 )

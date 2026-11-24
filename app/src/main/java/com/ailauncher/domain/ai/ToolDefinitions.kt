@@ -1,7 +1,10 @@
 package com.ailauncher.domain.ai
 
+import com.ailauncher.domain.model.ContactActionType
+import com.ailauncher.domain.model.FileActivityMode
+import com.ailauncher.domain.model.FileTypeFilter
+import com.ailauncher.domain.model.TodoPriority
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -14,26 +17,41 @@ import kotlinx.serialization.json.putJsonObject
  */
 object ToolDefinitions {
 
+    /** Below this n_ctx the compact tool set is used, so the prompt still leaves room for a conversation. */
+    const val FULL_TOOLSET_MIN_CONTEXT = 3072
+
+    /** Every tool (needs a 4096-token context: the block costs ~1.5k tokens). */
     val all: List<JsonObject> by lazy {
-        listOf(setAlarm, setTimer, createReminder, launchApp, toggleSetting, sortApps, getTodayAgenda)
+        listOf(
+            setAlarm, setTimer, createReminder, launchApp, toggleSetting, sortApps, getTodayAgenda,
+            manageTodo, managePlanner, listUnusedApps, findLargestFiles, queryFilesByActivity,
+            summarizeNotifications, contactAction,
+        )
     }
+
+    /**
+     * The original assistant tools plus to-dos, for 2048-token contexts (low-RAM phones). The other
+     * launcher tools stay reachable there through the deterministic quick commands.
+     */
+    val compact: List<JsonObject> by lazy {
+        listOf(setAlarm, setTimer, createReminder, launchApp, toggleSetting, sortApps, getTodayAgenda, manageTodo)
+    }
+
+    /** The tool set for a context window. Fixed per n_ctx, so the KV-cached prefix stays valid. */
+    fun forContext(contextSize: Int): List<JsonObject> = if (contextSize >= FULL_TOOLSET_MIN_CONTEXT) all else compact
 
     private val setAlarm = function(
         name = ToolNames.SET_ALARM,
-        description = "Set an alarm in the phone's clock app, e.g. a wake-up alarm.",
+        description = "Set an alarm in the clock app.",
         required = listOf("hour", "minute"),
     ) {
-        putJsonObject("hour") { put("type", "integer"); put("description", "Hour in 24-hour format, 0-23.") }
-        putJsonObject("minute") { put("type", "integer"); put("description", "Minute, 0-59.") }
-        putJsonObject("label") { put("type", "string"); put("description", "Optional short label, e.g. \"Gym\".") }
+        property("hour", "integer", "0-23, 24-hour time.")
+        property("minute", "integer")
+        property("label", "string")
         putJsonObject("days") {
             put("type", "array")
             putJsonObject("items") { put("type", "integer") }
-            put(
-                "description",
-                "Only for repeating alarms: weekdays to repeat on (1=Sunday, 2=Monday, ... 7=Saturday). " +
-                    "Omit for a one-time alarm such as \"tomorrow\".",
-            )
+            put("description", "Repeat weekdays, 1=Sunday..7=Saturday. Omit for a one-time alarm (\"tomorrow\").")
         }
     }
 
@@ -42,75 +60,139 @@ object ToolDefinitions {
         description = "Start a countdown timer.",
         required = listOf("seconds"),
     ) {
-        putJsonObject("seconds") {
-            put("type", "integer")
-            put("description", "Total duration in seconds, e.g. 300 for 5 minutes.")
-        }
-        putJsonObject("label") { put("type", "string"); put("description", "Optional short label.") }
+        property("seconds", "integer", "Total seconds, e.g. 300 for 5 minutes.")
+        property("label", "string")
     }
 
     private val createReminder = function(
         name = ToolNames.CREATE_REMINDER,
-        description = "Remind the user about something at a specific date and time with a notification.",
+        description = "Remind the user at a date and time with a notification.",
         required = listOf("title"),
     ) {
-        putJsonObject("title") { put("type", "string"); put("description", "What to remind the user about.") }
-        putJsonObject("datetime") {
-            put("type", "string")
-            put(
-                "description",
-                "Local date and time in ISO format YYYY-MM-DDTHH:MM using 24-hour time " +
-                    "(7 am = 07:00, 7 pm = 19:00, noon = 12:00). Resolve words like \"tomorrow\" " +
-                    "or \"tonight\" from the local time shown with the user's message.",
-            )
-        }
-        putJsonObject("in_minutes") {
-            put("type", "integer")
-            put("description", "Use instead of datetime for relative requests, e.g. 30 for \"in half an hour\".")
-        }
+        property("title", "string")
+        property(
+            "datetime",
+            "string",
+            "Local YYYY-MM-DDTHH:MM in 24-hour time (7 pm = 19:00). Resolve \"tomorrow\" from the local time in the user's message.",
+        )
+        property("in_minutes", "integer", "Instead of datetime for relative times, e.g. 30.")
     }
 
     private val launchApp = function(
         name = ToolNames.LAUNCH_APP,
-        description = "Open an app installed on the phone.",
+        description = "Open an installed app or a custom folder (e.g. \"Work folder\").",
         required = listOf("appName"),
     ) {
-        putJsonObject("appName") {
-            put("type", "string")
-            put("description", "The app's name as the user said it, e.g. \"Spotify\".")
-        }
+        property("appName", "string", "Name as the user said it.")
     }
 
     private val toggleSetting = function(
         name = ToolNames.TOGGLE_SETTING,
-        description = "Turn a phone setting on or off: Wi-Fi, Bluetooth, the flashlight or Do Not Disturb.",
+        description = "Turn Wi-Fi, Bluetooth, the flashlight or Do Not Disturb on or off.",
         required = listOf("setting"),
     ) {
-        putJsonObject("setting") {
-            put("type", "string")
-            put("enum", buildJsonArray { DeviceSetting.entries.forEach { add(kotlinx.serialization.json.JsonPrimitive(it.wireName)) } })
-        }
-        putJsonObject("state") {
-            put("type", "string")
-            putJsonArray("enum") {
-                add(kotlinx.serialization.json.JsonPrimitive("on"))
-                add(kotlinx.serialization.json.JsonPrimitive("off"))
-                add(kotlinx.serialization.json.JsonPrimitive("toggle"))
-            }
-        }
+        enumProperty("setting", DeviceSetting.entries.map { it.wireName })
+        enumProperty("state", listOf("on", "off", "toggle"))
     }
 
     private val sortApps = function(
         name = ToolNames.SORT_APPS,
-        description = "Organize the user's installed apps into smart categories in the app drawer.",
+        description = "Organize the installed apps into smart categories.",
         required = emptyList(),
     ) {}
 
     private val getTodayAgenda = function(
         name = ToolNames.GET_TODAY_AGENDA,
-        description = "Get today's calendar events, reminders and next alarm. Use when the user asks about their day or schedule.",
+        description = "Get today's events, reminders, alarm, planned blocks and urgent to-dos. Use for questions about the day.",
         required = emptyList(),
     ) {}
+
+    private val manageTodo = function(
+        name = ToolNames.MANAGE_TODO,
+        description = "Add, complete, delete or list to-dos.",
+        required = listOf("action"),
+    ) {
+        enumProperty("action", TodoAction.entries.map { it.wireName })
+        property("title", "string")
+        property("listName", "string", "e.g. Shopping. Default Inbox.")
+        enumProperty("priority", TodoPriority.entries.map { it.wireName })
+        property("dueIso", "string", "YYYY-MM-DDTHH:MM")
+        property("todoId", "integer")
+    }
+
+    private val managePlanner = function(
+        name = ToolNames.MANAGE_PLANNER,
+        description = "Plan the day in time blocks.",
+        required = listOf("action"),
+    ) {
+        enumProperty("action", PlannerAction.entries.map { it.wireName })
+        property("dateIso", "string", "YYYY-MM-DD, default today.")
+        property("startTime", "string", "HH:MM, 24-hour (2 pm = 14:00).")
+        property("durationMinutes", "integer", "Default 60.")
+        property("title", "string")
+        property("blockId", "integer")
+    }
+
+    private val listUnusedApps = function(
+        name = ToolNames.LIST_UNUSED_APPS,
+        description = "List apps not opened for a while.",
+        required = emptyList(),
+    ) {
+        property("inactiveDays", "integer", "Omit for the user's default.")
+    }
+
+    private val findLargestFiles = function(
+        name = ToolNames.FIND_LARGEST_FILES,
+        description = "Find the biggest files on the phone.",
+        required = emptyList(),
+    ) {
+        property("limit", "integer", "Default 15.")
+        enumProperty("fileType", FileTypeFilter.entries.map { it.wireName })
+    }
+
+    private val queryFilesByActivity = function(
+        name = ToolNames.QUERY_FILES_BY_ACTIVITY,
+        description = "Find files untouched for unusedDays, or downloaded, opened or modified between two dates.",
+        required = listOf("filterMode"),
+    ) {
+        enumProperty("filterMode", FileActivityMode.entries.map { it.wireName })
+        property("unusedDays", "integer")
+        property("startDateIso", "string", "YYYY-MM-DD")
+        property("endDateIso", "string", "YYYY-MM-DD")
+        enumProperty("fileType", FileTypeFilter.entries.map { it.wireName })
+    }
+
+    private val summarizeNotifications = function(
+        name = ToolNames.SUMMARIZE_NOTIFICATIONS,
+        description = "Read the last 24 hours of notifications to summarize them.",
+        required = emptyList(),
+    ) {
+        property("appName", "string", "Only this app.")
+    }
+
+    private val contactAction = function(
+        name = ToolNames.CONTACT_ACTION,
+        description = "Call, text (SMS) or WhatsApp a contact.",
+        required = listOf("action", "contactName"),
+    ) {
+        enumProperty("action", ContactActionType.entries.map { it.wireName })
+        property("contactName", "string")
+        property("message", "string")
+    }
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.property(name: String, type: String, description: String? = null) {
+        putJsonObject(name) {
+            put("type", type)
+            description?.let { put("description", it) }
+        }
+    }
+
+    private fun kotlinx.serialization.json.JsonObjectBuilder.enumProperty(name: String, values: List<String>) {
+        putJsonObject(name) {
+            put("type", "string")
+            putJsonArray("enum") { values.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+        }
+    }
 
     private fun function(
         name: String,
@@ -125,7 +207,7 @@ object ToolDefinitions {
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties", properties)
-                putJsonArray("required") { required.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+                if (required.isNotEmpty()) putJsonArray("required") { required.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
             }
         }
     }

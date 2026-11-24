@@ -8,11 +8,13 @@ data class ActionResult(
     val success: Boolean,
     /** Short, user-facing message shown on the tool card. */
     val message: String,
-    /** Structured result returned to the model inside `<tool_response>`. */
+    /** Structured result returned to the model inside `<tool_response>` (kept compact). */
     val data: JsonObject? = null,
+    /** Richer payload for the chat card only (URIs, package names, …); never sent to the model. */
+    val display: JsonObject? = null,
 ) {
     companion object {
-        fun ok(message: String, data: JsonObject? = null) = ActionResult(true, message, data)
+        fun ok(message: String, data: JsonObject? = null, display: JsonObject? = null) = ActionResult(true, message, data, display)
         fun fail(message: String) = ActionResult(false, message)
     }
 }

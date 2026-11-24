@@ -11,12 +11,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
+import android.graphics.Rect
+import android.os.Bundle
 import android.os.UserHandle
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import com.ailauncher.data.home.DockCoordinator
 import com.ailauncher.data.local.dao.AppDao
 import com.ailauncher.data.local.entity.AppAliasEntity
 import com.ailauncher.data.local.entity.AppCategoryEntity
@@ -26,6 +30,7 @@ import com.ailauncher.data.local.entity.AppRow
 import com.ailauncher.di.ApplicationScope
 import com.ailauncher.domain.model.AppCategory
 import com.ailauncher.domain.model.AppInfo
+import com.ailauncher.domain.model.AppShortcut
 import com.ailauncher.domain.model.AppSyncResult
 import com.ailauncher.domain.model.CategorySource
 import com.ailauncher.domain.repository.AppRepository
@@ -61,14 +66,15 @@ class PackageRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appDao: AppDao,
     private val categorizationScheduler: CategorizationScheduler,
+    private val dockCoordinator: DockCoordinator,
+    private val shortcuts: ShortcutRepositoryImpl,
     @ApplicationScope private val scope: CoroutineScope,
-) : AppRepository {
+) : AppRepository, AppLauncher {
 
     private val pm: PackageManager = context.packageManager
     private val launcherApps: LauncherApps? = context.getSystemService(LauncherApps::class.java)
     private val internalPrefs = context.getSharedPreferences("launcher_internal", Context.MODE_PRIVATE)
     private val syncMutex = Mutex()
-    private val dockMutex = Mutex()
     private val syncRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     override val apps: Flow<List<AppInfo>> =
@@ -179,6 +185,44 @@ class PackageRepository @Inject constructor(
         return launched
     }
 
+    /**
+     * Launcher-style start through LauncherApps, carrying the tapped icon's bounds and an
+     * ActivityOptions bundle (clip-reveal from the icon), with the plain intent path as fallback.
+     */
+    override suspend fun launch(app: AppInfo, sourceBounds: Rect?, options: Bundle?): Boolean {
+        val launched = withContext(Dispatchers.Main) {
+            val viaLauncherApps = launcherApps?.let { apps ->
+                runCatching {
+                    apps.startMainActivity(ComponentName(app.packageName, app.activityName), Process.myUserHandle(), sourceBounds, options)
+                    true
+                }.getOrDefault(false)
+            } == true
+            viaLauncherApps || run {
+                val explicit = Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_LAUNCHER)
+                    .setComponent(ComponentName(app.packageName, app.activityName))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                    .apply { sourceBounds?.let { setSourceBounds(it) } }
+                tryStart(explicit, options)
+            }
+        }
+        if (launched) recordLaunch(app) else return launch(app)
+        return true
+    }
+
+    override fun startShortcut(shortcut: AppShortcut, sourceBounds: Rect?, options: Bundle?): Boolean =
+        shortcuts.start(shortcut, sourceBounds, options)
+
+    private fun tryStart(intent: Intent, options: Bundle?): Boolean = try {
+        context.startActivity(intent, options)
+        true
+    } catch (e: ActivityNotFoundException) {
+        false
+    } catch (e: SecurityException) {
+        Log.w(TAG, "Not allowed to start ${intent.component}", e)
+        false
+    }
+
     private fun tryStart(intent: Intent): Boolean = try {
         context.startActivity(intent)
         true
@@ -222,7 +266,7 @@ class PackageRepository @Inject constructor(
 
     override suspend fun setHidden(componentKey: String, hidden: Boolean) {
         updatePrefs(componentKey) { it.copy(isHidden = hidden, dockPosition = if (hidden) null else it.dockPosition) }
-        if (hidden) compactDock()
+        if (hidden) dockCoordinator.compact()
     }
 
     override suspend fun setCustomLabel(componentKey: String, label: String?) {
@@ -284,34 +328,12 @@ class PackageRepository @Inject constructor(
     //  Dock
     // ---------------------------------------------------------------------------------------- //
 
-    override suspend fun pinToDock(componentKey: String): Boolean = dockMutex.withLock {
-        val dock = appDao.dock()
-        if (dock.any { it.componentKey == componentKey }) return@withLock true
-        if (dock.size >= AppRepository.MAX_DOCK_SIZE) return@withLock false
-        updatePrefs(componentKey) { it.copy(dockPosition = (dock.maxOfOrNull { d -> d.dockPosition ?: 0 } ?: -1) + 1, isHidden = false) }
-        true
-    }
+    // The dock's 5 slots are shared with pinned folders, so slot numbering lives in DockCoordinator.
+    override suspend fun pinToDock(componentKey: String): Boolean = dockCoordinator.pinApp(componentKey)
 
-    override suspend fun unpinFromDock(componentKey: String) = dockMutex.withLock {
-        updatePrefs(componentKey) { it.copy(dockPosition = null) }
-        compactDockLocked()
-    }
+    override suspend fun unpinFromDock(componentKey: String) = dockCoordinator.unpinApp(componentKey)
 
-    override suspend fun moveInDock(componentKey: String, offset: Int) = dockMutex.withLock {
-        val dock = appDao.dock().toMutableList()
-        val index = dock.indexOfFirst { it.componentKey == componentKey }
-        if (index < 0) return@withLock
-        val target = (index + offset).coerceIn(0, dock.lastIndex)
-        if (target == index) return@withLock
-        dock.add(target, dock.removeAt(index))
-        appDao.upsertPrefs(dock.mapIndexed { i, prefs -> prefs.copy(dockPosition = i) })
-    }
-
-    private suspend fun compactDock() = dockMutex.withLock { compactDockLocked() }
-
-    private suspend fun compactDockLocked() {
-        appDao.upsertPrefs(appDao.dock().mapIndexed { i, prefs -> prefs.copy(dockPosition = i) })
-    }
+    override suspend fun moveInDock(componentKey: String, offset: Int) = dockCoordinator.moveApp(componentKey, offset)
 
     override suspend fun ensureDefaultDock() {
         if (internalPrefs.getBoolean(KEY_DOCK_SEEDED, false)) return

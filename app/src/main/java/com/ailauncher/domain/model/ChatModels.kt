@@ -38,6 +38,8 @@ data class ToolInvocation(
     val resultMessage: String? = null,
     /** Structured result fed back to the model in `<tool_response>`. */
     val resultData: JsonObject? = null,
+    /** Card-only payload (file URIs, package names, ids for quick actions); not part of the prompt. */
+    val displayData: JsonObject? = null,
 )
 
 data class ChatMessage(

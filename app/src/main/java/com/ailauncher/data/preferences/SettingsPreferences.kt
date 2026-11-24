@@ -26,6 +26,12 @@ internal object SettingsKeys {
     val DRAWER_LAYOUT = stringPreferencesKey("drawer_layout")
     val DRAWER_TAB = stringPreferencesKey("drawer_tab")
     val GRID_COLUMNS = intPreferencesKey("grid_columns")
+    val HOME_GRID_COLUMNS = intPreferencesKey("home_grid_columns")
+    val UNUSED_APP_DAYS = intPreferencesKey("unused_app_threshold_days")
+    val STALE_FILE_DAYS = intPreferencesKey("stale_file_threshold_days")
+    val NOTIFICATION_DIGEST = booleanPreferencesKey("notification_digest")
+    val NOTIFICATION_BADGES = booleanPreferencesKey("notification_badges")
+    val SUGGESTED_APPS = booleanPreferencesKey("suggested_apps")
     val CLOCK_FORMAT = intPreferencesKey("clock_format") // 0 = system, 12, 24
     val DOUBLE_TAP_LOCK = booleanPreferencesKey("double_tap_lock")
     val SWIPE_DOWN_NOTIFICATIONS = booleanPreferencesKey("swipe_down_notifications")
@@ -40,6 +46,8 @@ internal object SettingsKeys {
     val USE_MMAP = booleanPreferencesKey("model_use_mmap")
     val QUANTIZE_KV = booleanPreferencesKey("model_quantize_kv")
     val REASONING_DEFAULT = booleanPreferencesKey("model_reasoning_default")
+    val ACTIVE_MODEL = stringPreferencesKey("model_active_id")
+    val GPU_OFFLOAD = booleanPreferencesKey("model_gpu_offload")
 }
 
 internal fun Preferences.toLauncherSettings(): LauncherSettings {
@@ -56,7 +64,13 @@ internal fun Preferences.toLauncherSettings(): LauncherSettings {
         iconStyle = enumOrDefault(this[SettingsKeys.ICON_STYLE], defaults.iconStyle),
         drawerLayout = enumOrDefault(this[SettingsKeys.DRAWER_LAYOUT], defaults.drawerLayout),
         drawerTab = enumOrDefault(this[SettingsKeys.DRAWER_TAB], defaults.drawerTab),
-        gridColumns = (this[SettingsKeys.GRID_COLUMNS] ?: defaults.gridColumns).coerceIn(3, 6),
+        gridColumns = (this[SettingsKeys.GRID_COLUMNS] ?: defaults.gridColumns).coerceIn(4, 5),
+        homeGridColumns = (this[SettingsKeys.HOME_GRID_COLUMNS] ?: defaults.homeGridColumns).coerceIn(4, 5),
+        unusedAppThresholdDays = (this[SettingsKeys.UNUSED_APP_DAYS] ?: defaults.unusedAppThresholdDays).coerceIn(1, 365),
+        staleFileThresholdDays = (this[SettingsKeys.STALE_FILE_DAYS] ?: defaults.staleFileThresholdDays).coerceIn(1, 3650),
+        notificationDigestEnabled = this[SettingsKeys.NOTIFICATION_DIGEST] ?: defaults.notificationDigestEnabled,
+        notificationBadges = this[SettingsKeys.NOTIFICATION_BADGES] ?: defaults.notificationBadges,
+        showSuggestedApps = this[SettingsKeys.SUGGESTED_APPS] ?: defaults.showSuggestedApps,
         use24HourClock = when (this[SettingsKeys.CLOCK_FORMAT]) {
             12 -> false
             24 -> true
@@ -83,7 +97,13 @@ internal fun MutablePreferences.writeLauncherSettings(s: LauncherSettings) {
     this[SettingsKeys.ICON_STYLE] = s.iconStyle.name
     this[SettingsKeys.DRAWER_LAYOUT] = s.drawerLayout.name
     this[SettingsKeys.DRAWER_TAB] = s.drawerTab.name
-    this[SettingsKeys.GRID_COLUMNS] = s.gridColumns.coerceIn(3, 6)
+    this[SettingsKeys.GRID_COLUMNS] = s.gridColumns.coerceIn(4, 5)
+    this[SettingsKeys.HOME_GRID_COLUMNS] = s.homeGridColumns.coerceIn(4, 5)
+    this[SettingsKeys.UNUSED_APP_DAYS] = s.unusedAppThresholdDays.coerceIn(1, 365)
+    this[SettingsKeys.STALE_FILE_DAYS] = s.staleFileThresholdDays.coerceIn(1, 3650)
+    this[SettingsKeys.NOTIFICATION_DIGEST] = s.notificationDigestEnabled
+    this[SettingsKeys.NOTIFICATION_BADGES] = s.notificationBadges
+    this[SettingsKeys.SUGGESTED_APPS] = s.showSuggestedApps
     this[SettingsKeys.CLOCK_FORMAT] = when (s.use24HourClock) {
         true -> 24
         false -> 12
@@ -107,6 +127,8 @@ internal fun Preferences.toModelConfig(): ModelConfig {
         useMmap = this[SettingsKeys.USE_MMAP] ?: defaults.useMmap,
         quantizeKvCache = this[SettingsKeys.QUANTIZE_KV] ?: defaults.quantizeKvCache,
         reasoningByDefault = this[SettingsKeys.REASONING_DEFAULT] ?: defaults.reasoningByDefault,
+        activeModelId = this[SettingsKeys.ACTIVE_MODEL]?.takeIf { it.isNotBlank() } ?: defaults.activeModelId,
+        gpuOffload = this[SettingsKeys.GPU_OFFLOAD] ?: defaults.gpuOffload,
     )
 }
 
@@ -117,6 +139,8 @@ internal fun MutablePreferences.writeModelConfig(c: ModelConfig) {
     this[SettingsKeys.USE_MMAP] = c.useMmap
     this[SettingsKeys.QUANTIZE_KV] = c.quantizeKvCache
     this[SettingsKeys.REASONING_DEFAULT] = c.reasoningByDefault
+    this[SettingsKeys.ACTIVE_MODEL] = c.activeModelId
+    this[SettingsKeys.GPU_OFFLOAD] = c.gpuOffload
 }
 
 private inline fun <reified E : Enum<E>> enumOrDefault(value: String?, default: E): E =
