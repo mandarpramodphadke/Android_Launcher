@@ -3,7 +3,6 @@ package com.ailauncher.presentation.settings
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -63,6 +63,8 @@ import com.ailauncher.BuildConfig
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.domain.model.DrawerTab
 import com.ailauncher.domain.model.EngineState
+import com.ailauncher.domain.model.HomeTextColor
+import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.model.ThemeMode
@@ -156,18 +158,53 @@ fun SettingsScreen(
             // ---------------------------------------------------------------- Appearance
             item { SectionTitle("Appearance") }
             item {
+                ThemePicker(selected = state.settings.appTheme, mode = state.settings.themeMode) { theme ->
+                    viewModel.updateSettings { it.copy(appTheme = theme) }
+                }
+            }
+            item {
+                val darkOnly = !state.settings.appTheme.supportsLight
                 SegmentedSetting(
-                    title = "Theme",
+                    title = "Light or dark",
+                    subtitle = if (darkOnly) "${themeLabel(state.settings.appTheme)} is always dark" else null,
                     options = listOf(ThemeMode.SYSTEM to "System", ThemeMode.LIGHT to "Light", ThemeMode.DARK to "Dark"),
                     selected = state.settings.themeMode,
+                    enabled = !darkOnly,
                     onSelect = { mode -> viewModel.updateSettings { it.copy(themeMode = mode) } },
                 )
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            item {
+                SwitchSetting("Minimal mode", "Text-only home screen and app drawer, no icons", state.settings.minimalMode) { on ->
+                    viewModel.updateSettings { it.copy(minimalMode = on) }
+                }
+            }
+            if (!state.settings.minimalMode) {
                 item {
-                    SwitchSetting("Wallpaper colours", "Material You colours from your wallpaper", state.settings.dynamicColor) { on ->
-                        viewModel.updateSettings { it.copy(dynamicColor = on) }
-                    }
+                    SegmentedSetting(
+                        title = "App icons",
+                        subtitle = if (state.settings.iconStyle == IconStyle.THEMED && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                            "Themed icons need Android 13, so icons are shown in greyscale"
+                        } else {
+                            "Themed icons take your theme's colours (apps without one are shown in greyscale)"
+                        },
+                        options = listOf(IconStyle.ORIGINAL to "Original", IconStyle.THEMED to "Themed", IconStyle.GRAYSCALE to "Greyscale"),
+                        selected = state.settings.iconStyle,
+                        onSelect = { style -> viewModel.updateSettings { it.copy(iconStyle = style) } },
+                    )
+                }
+            }
+            item {
+                SegmentedSetting(
+                    title = "Home screen text",
+                    subtitle = "Auto picks light or dark text to suit your wallpaper",
+                    options = listOf(HomeTextColor.AUTO to "Auto", HomeTextColor.LIGHT to "Light", HomeTextColor.DARK to "Dark"),
+                    selected = state.settings.homeTextColor,
+                    onSelect = { color -> viewModel.updateSettings { it.copy(homeTextColor = color) } },
+                )
+            }
+            item {
+                SwitchSetting("Text shade", "Soft gradient behind home screen text, for busy wallpapers", state.settings.homeTextShade) { on ->
+                    viewModel.updateSettings { it.copy(homeTextShade = on) }
                 }
             }
             item {
@@ -178,13 +215,15 @@ fun SettingsScreen(
                     onSelect = { value -> viewModel.updateSettings { it.copy(use24HourClock = value) } },
                 )
             }
-            item {
-                SegmentedSetting(
-                    title = "App grid columns",
-                    options = (3..6).map { it to it.toString() },
-                    selected = state.settings.gridColumns,
-                    onSelect = { columns -> viewModel.updateSettings { it.copy(gridColumns = columns) } },
-                )
+            if (!state.settings.minimalMode) {
+                item {
+                    SegmentedSetting(
+                        title = "App grid columns",
+                        options = (3..6).map { it to it.toString() },
+                        selected = state.settings.gridColumns,
+                        onSelect = { columns -> viewModel.updateSettings { it.copy(gridColumns = columns) } },
+                    )
+                }
             }
 
             // ---------------------------------------------------------------- Gestures
@@ -436,15 +475,31 @@ private fun ActionSetting(title: String, subtitle: String?, onClick: () -> Unit)
 }
 
 @Composable
-private fun <T> SegmentedSetting(title: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+private fun <T> SegmentedSetting(
+    title: String,
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 8.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+        )
+        if (subtitle != null) {
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(8.dp))
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             options.forEachIndexed { index, (value, label) ->
                 SegmentedButton(
                     selected = value == selected,
                     onClick = { onSelect(value) },
                     shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                    enabled = enabled,
                 ) { Text(label, maxLines = 1) }
             }
         }

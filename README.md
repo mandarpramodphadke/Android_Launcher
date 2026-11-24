@@ -32,9 +32,18 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 - **Real HOME app**: `MAIN`/`HOME`/`DEFAULT` filter, `singleTask` + `stateNotNeeded`, and a transparent
   `Theme.Material3.DayNight.NoActionBar` window with `windowShowWallpaper`, so the live/static
   wallpaper renders natively behind Compose. Settings has a `RoleManager.ROLE_HOME` request button.
-- **Home screen**: minimalist clock and date (text colour adapts to the wallpaper via
-  `WallpaperColors`), a next-alarm/reminder pill, a 5-slot dock, and the **AI Command Bar**. The bar
-  doubles as instant fuzzy app search and offers voice input when an offline recognizer exists.
+- **Home screen**: minimalist clock and date, a next-alarm/reminder pill, a 5-slot dock, and the
+  **AI Command Bar**. The bar doubles as instant fuzzy app search and offers voice input when an
+  offline recognizer exists.
+- **Readable on any wallpaper**: text colour follows `WallpaperColors` (or a Light/Dark override)
+  and is never relied on alone:
+  - every word on the wallpaper carries a halo (dark text) or drop shadow (light text)
+  - chips get a backing of the opposite polarity
+  - optional top and bottom gradients shade the regions that hold text
+  
+  So a wallpaper that is light overall but dark behind the clock no longer hides it. Status-bar
+  icon colour is applied when a screen *resumes*, never "restored" when one is disposed, which
+  removes the race that left dark icons over dark screens after navigation.
 - **Gestures**: swipe up opens the drawer, swipe down opens notifications, swipe left opens the AI
   chat, double-tap locks the screen, long-press opens the home menu.
   - Double-tap lock prefers `AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN`, which keeps biometric
@@ -49,6 +58,33 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 - **Live package sync**: a runtime `BroadcastReceiver` (`PACKAGE_ADDED/REMOVED/CHANGED/REPLACED`)
   plus `LauncherApps.Callback`, debounced into one incremental Room sync. New installs trigger
   incremental AI categorization.
+
+### Themes & minimal mode
+Settings → Appearance has a live-preview theme picker:
+
+| Theme | Look |
+|---|---|
+| **Material You** | Colours from your wallpaper (Android 12+; Classic colours on 10/11). |
+| **Classic** | Indigo and violet accents, light or dark. |
+| **AMOLED** | True-black surfaces (dark-only); keeps wallpaper accents on Android 12+. |
+| **Colourful** | Vibrant multi-hue palette, gradient clock, colour-coded drawer categories. |
+| **Neon** | Deep-night surfaces, glowing cyan clock, gradient outlines, neon category colours (dark-only). |
+| **Mono** | Black, white and greys, with a hairline clock. |
+
+Other appearance options:
+- **Light or dark**: System, Light or Dark (disabled for the dark-only themes).
+- **App icons**: Original, Themed or Greyscale. Themed tints Android 13 monochrome icons with the
+  theme; apps without one are shown in greyscale.
+- **Home screen text**: Auto, Light or Dark.
+- **Text shade**: the readability gradients.
+
+**Minimal mode** turns the home screen into words: a thin clock, favourites as large text (typing
+filters them into search results), and an underlined command bar. The drawer becomes text-only
+lists.
+
+Every scheme sets all Material roles explicitly. `ColorSchemeContrastTest` enforces WCAG AA in
+each theme: 4.5:1 for every text/background pair, 3:1 for icons and outlines. It also covers the
+category colours, and the home chips over black, grey and white wallpaper.
 
 ### On-device AI
 - **Model onboarding**:
@@ -316,8 +352,15 @@ The JVM unit tests cover:
 - output and tool-call parsing, the tool router, and quick commands
 - fuzzy search, backup crypto, and categorization parsing/grammar
 - the Markdown parser
+- theme contrast (WCAG AA for every theme), the wallpaper text-colour logic, and settings
+  persistence and migration
 - the exact prompts `ChatAgent` sends; these are exported to `app/build/prompt-fixtures/` for
   replay
+
+**Screenshot test.** `ThemeScreenshotTest` uses Robolectric native graphics to render the home
+screen, drawer and theme picker in every theme. The variants are minimal mode, light/dark/banded
+wallpapers, and themed/greyscale icons. It fails on crashes or blank frames and writes PNGs to
+`app/build/outputs/screenshots/` for review.
 
 **JNI integration test.** `LlamaNativeHostTest` builds the same `llama_jni.cpp` / `llm_engine.cpp`
 for the desktop and drives it through the real Kotlin `LlamaNative` declarations with a real GGUF.
@@ -352,8 +395,8 @@ All of the following was run while building this project:
 - `assembleDebug` and `assembleRelease` (R8 + resource shrinking, 16 MB APK) succeed with **zero
   compiler warnings**. `lintDebug` is clean except for the intentional `OldTargetApi`
   (targetSdk 36).
-- **49 JVM unit tests pass**, and the JNI integration test passes against the real
-  Qwen3-1.7B Q4_K_M:
+- **65 JVM unit tests pass**, including one that renders 23 theme/layout screenshots. The JNI
+  integration test passes against the real Qwen3-1.7B Q4_K_M:
   - streaming of CJK and emoji text
   - prefix cache, GBNF grammar, and both cancellation paths
   - Kotlin exceptions propagating through C++

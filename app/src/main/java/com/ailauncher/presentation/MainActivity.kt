@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             val ready = state as? MainUiState.Ready ?: return@setContent // DataStore read: ~ms
-            AiLauncherTheme(themeMode = ready.settings.themeMode, dynamicColor = ready.settings.dynamicColor) {
+            AiLauncherTheme(settings = ready.settings) {
                 val start = remember { if (ready.settings.onboardingCompleted) HomeRoute else OnboardingRoute }
                 LauncherNavHost(startDestination = start, homePresses = viewModel.homePresses)
             }

@@ -67,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -89,6 +90,7 @@ import com.ailauncher.presentation.components.AppActionsSheet
 import com.ailauncher.presentation.components.AppGridTile
 import com.ailauncher.presentation.components.AppListRow
 import com.ailauncher.presentation.components.ThemedSystemBarIcons
+import com.ailauncher.presentation.theme.LocalLauncherStyle
 import kotlinx.coroutines.launch
 
 @Composable
@@ -97,7 +99,10 @@ fun AppDrawerScreen(
     onOpenSettings: () -> Unit,
     viewModel: AppDrawerViewModel = hiltViewModel(),
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val minimal = LocalLauncherStyle.current.minimal
+    // Minimal mode is text-only, which only the list layout can show.
+    val state = if (minimal) uiState.copy(layout = DrawerLayout.LIST) else uiState
     val snackbar = remember { SnackbarHostState() }
     var sheetApp by remember { mutableStateOf<AppInfo?>(null) }
     val closeDrawer by rememberUpdatedState(onClose)
@@ -131,45 +136,19 @@ fun AppDrawerScreen(
         }
     }
 
-    Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f), modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-            DrawerTopBar(
-                query = state.query,
-                onQueryChange = viewModel::onQueryChange,
-                layout = state.layout,
-                onToggleLayout = viewModel::toggleLayout,
-                onOpenSettings = onOpenSettings,
-            )
-            if (state.query.isBlank()) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    SegmentedButton(
-                        selected = state.tab == DrawerTab.ALPHABETICAL,
-                        onClick = { viewModel.setTab(DrawerTab.ALPHABETICAL) },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2),
-                        icon = { Icon(Icons.Rounded.SortByAlpha, null, Modifier.size(18.dp)) },
-                    ) { Text("A–Z") }
-                    SegmentedButton(
-                        selected = state.tab == DrawerTab.CATEGORIES,
-                        onClick = { viewModel.setTab(DrawerTab.CATEGORIES) },
-                        shape = SegmentedButtonDefaults.itemShape(1, 2),
-                        icon = { Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp)) },
-                    ) { Text("Smart categories") }
-                }
-            }
-            Box(Modifier.weight(1f).nestedScroll(closeConnection)) {
-                when {
-                    state.loading -> Unit
-                    state.query.isNotBlank() -> SearchResults(state, viewModel::launch) { sheetApp = it }
-                    state.tab == DrawerTab.ALPHABETICAL -> AlphabeticalContent(state, viewModel::launch) { sheetApp = it }
-                    else -> CategoryContent(
-                        state = state,
-                        onLaunch = viewModel::launch,
-                        onLongPress = { sheetApp = it },
-                        onOrganize = { viewModel.organizeWithAi(false) },
-                    )
-                }
-            }
-        }
+    Box(Modifier.fillMaxSize()) {
+        DrawerContent(
+            state = state,
+            minimal = minimal,
+            onQueryChange = viewModel::onQueryChange,
+            onToggleLayout = viewModel::toggleLayout,
+            onOpenSettings = onOpenSettings,
+            onSelectTab = viewModel::setTab,
+            onLaunch = viewModel::launch,
+            onLongPress = { sheetApp = it },
+            onOrganize = { viewModel.organizeWithAi(false) },
+            modifier = Modifier.nestedScroll(closeConnection),
+        )
         SnackbarHost(snackbar, Modifier.fillMaxSize().navigationBarsPadding(), snackbar = { data ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) { androidx.compose.material3.Snackbar(data) }
         })
@@ -178,12 +157,74 @@ fun AppDrawerScreen(
     sheetApp?.let { app -> AppActionsSheet(app = app, handler = viewModel, onDismiss = { sheetApp = null }) }
 }
 
+/** The drawer's visible content. Stateless, so it can be rendered in screenshot tests. */
+@Composable
+internal fun DrawerContent(
+    state: DrawerUiState,
+    minimal: Boolean,
+    onQueryChange: (String) -> Unit,
+    onToggleLayout: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onSelectTab: (DrawerTab) -> Unit,
+    onLaunch: (AppInfo) -> Unit,
+    onLongPress: (AppInfo) -> Unit,
+    onOrganize: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+        // Explicit: Material can't infer a content colour for a translucent surface (it fell back to black).
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+            DrawerTopBar(
+                query = state.query,
+                onQueryChange = onQueryChange,
+                layout = state.layout,
+                onToggleLayout = onToggleLayout.takeUnless { minimal },
+                onOpenSettings = onOpenSettings,
+            )
+            if (state.query.isBlank()) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    SegmentedButton(
+                        selected = state.tab == DrawerTab.ALPHABETICAL,
+                        onClick = { onSelectTab(DrawerTab.ALPHABETICAL) },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                        icon = { Icon(Icons.Rounded.SortByAlpha, null, Modifier.size(18.dp)) },
+                    ) { Text("A–Z") }
+                    SegmentedButton(
+                        selected = state.tab == DrawerTab.CATEGORIES,
+                        onClick = { onSelectTab(DrawerTab.CATEGORIES) },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                        icon = { Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp)) },
+                    ) { Text("Smart categories") }
+                }
+            }
+            Box(Modifier.weight(1f)) {
+                when {
+                    state.loading -> Unit
+                    state.query.isNotBlank() -> SearchResults(state, minimal, onLaunch, onLongPress)
+                    state.tab == DrawerTab.ALPHABETICAL -> AlphabeticalContent(state, minimal, onLaunch, onLongPress)
+                    else -> CategoryContent(
+                        state = state,
+                        minimal = minimal,
+                        onLaunch = onLaunch,
+                        onLongPress = onLongPress,
+                        onOrganize = onOrganize,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun DrawerTopBar(
     query: String,
     onQueryChange: (String) -> Unit,
     layout: DrawerLayout,
-    onToggleLayout: () -> Unit,
+    onToggleLayout: (() -> Unit)?,
     onOpenSettings: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -202,21 +243,31 @@ private fun DrawerTopBar(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onToggleLayout) {
-            Icon(
-                if (layout == DrawerLayout.GRID) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                contentDescription = if (layout == DrawerLayout.GRID) "Show as list" else "Show as grid",
-            )
+        if (onToggleLayout != null) {
+            IconButton(onClick = onToggleLayout) {
+                Icon(
+                    if (layout == DrawerLayout.GRID) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                    contentDescription = if (layout == DrawerLayout.GRID) "Show as list" else "Show as grid",
+                )
+            }
         }
         IconButton(onClick = onOpenSettings) { Icon(Icons.Rounded.Settings, "Launcher settings") }
     }
 }
 
 @Composable
-private fun SearchResults(state: DrawerUiState, onLaunch: (AppInfo) -> Unit, onLongPress: (AppInfo) -> Unit) {
+private fun SearchResults(state: DrawerUiState, minimal: Boolean, onLaunch: (AppInfo) -> Unit, onLongPress: (AppInfo) -> Unit) {
     if (state.searchResults.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.TopCenter) {
             Text("No apps match \"${state.query}\"", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+    if (minimal) {
+        LazyColumn(contentPadding = PaddingValues(8.dp), modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
+            items(state.searchResults, key = { it.componentKey }) { app ->
+                AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) }, showIcon = false)
+            }
         }
         return
     }
@@ -232,7 +283,7 @@ private fun SearchResults(state: DrawerUiState, onLaunch: (AppInfo) -> Unit, onL
 }
 
 @Composable
-private fun AlphabeticalContent(state: DrawerUiState, onLaunch: (AppInfo) -> Unit, onLongPress: (AppInfo) -> Unit) {
+private fun AlphabeticalContent(state: DrawerUiState, minimal: Boolean, onLaunch: (AppInfo) -> Unit, onLongPress: (AppInfo) -> Unit) {
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -250,7 +301,7 @@ private fun AlphabeticalContent(state: DrawerUiState, onLaunch: (AppInfo) -> Uni
             if (state.layout == DrawerLayout.GRID) {
                 AlphabeticalGrid(state, gridState, onLaunch, onLongPress)
             } else {
-                AlphabeticalList(state, listState, onLaunch, onLongPress)
+                AlphabeticalList(state, minimal, listState, onLaunch, onLongPress)
             }
         }
         FastScroller(
@@ -291,6 +342,7 @@ private fun AlphabeticalGrid(
 @Composable
 private fun AlphabeticalList(
     state: DrawerUiState,
+    minimal: Boolean,
     listState: LazyListState,
     onLaunch: (AppInfo) -> Unit,
     onLongPress: (AppInfo) -> Unit,
@@ -303,7 +355,13 @@ private fun AlphabeticalList(
         state.alphabetical.forEach { section ->
             item(key = "header-${section.key}") { SectionHeader(section.key) }
             items(section.apps, key = { it.componentKey }) { app ->
-                AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) }, supportingText = app.category?.displayName)
+                AppListRow(
+                    app = app,
+                    onClick = { onLaunch(app) },
+                    onLongClick = { onLongPress(app) },
+                    supportingText = app.category?.displayName.takeUnless { minimal },
+                    showIcon = !minimal,
+                )
             }
         }
     }
@@ -392,25 +450,35 @@ private fun FastScroller(letters: List<String>, onLetter: (String) -> Unit, modi
 @Composable
 private fun CategoryContent(
     state: DrawerUiState,
+    minimal: Boolean,
     onLaunch: (AppInfo) -> Unit,
     onLongPress: (AppInfo) -> Unit,
     onOrganize: () -> Unit,
 ) {
+    val style = LocalLauncherStyle.current
     LazyColumn(
         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (minimal) 0.dp else 8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         item(key = "banner") { CategorizationBanner(state, onOrganize) }
         state.categories.forEach { section ->
             val title = section.category?.displayName ?: "Not sorted yet"
+            // Colorful and Neon colour-code categories; other themes use the regular text colour.
+            val accent = style.categoryColor(section.category)
             item(key = "cat-$title") {
+                if (minimal) {
+                    Column {
+                        CategoryHeader(title, section.apps.size, accent ?: MaterialTheme.colorScheme.primary, Modifier.padding(top = 12.dp))
+                        section.apps.forEach { app ->
+                            AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) }, showIcon = false)
+                        }
+                    }
+                    return@item
+                }
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                     Column(Modifier.padding(vertical = 8.dp)) {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                            Text("${section.apps.size}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        CategoryHeader(title, section.apps.size, accent)
                         if (state.layout == DrawerLayout.LIST) {
                             section.apps.forEach { app ->
                                 AppListRow(app = app, onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) })
@@ -434,6 +502,24 @@ private fun CategoryContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CategoryHeader(title: String, count: Int, accent: Color?, modifier: Modifier = Modifier) {
+    Row(modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (accent != null) {
+            Box(Modifier.size(8.dp).background(accent, CircleShape))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = accent ?: MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text("$count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -30,12 +31,20 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.ailauncher.data.packages.AppIconData
 import com.ailauncher.domain.model.AppInfo
+import com.ailauncher.domain.model.IconStyle
+import com.ailauncher.presentation.theme.LocalLauncherStyle
 
-/** Launcher icon loaded asynchronously through Coil's [com.ailauncher.data.packages.AppIconFetcher]. */
+/**
+ * Launcher icon loaded asynchronously through Coil's [com.ailauncher.data.packages.AppIconFetcher],
+ * in the icon style chosen in settings (themed icons take the current theme's container colours).
+ */
 @Composable
 fun AppIcon(app: AppInfo, size: Dp, modifier: Modifier = Modifier) {
-    val model = remember(app.packageName, app.activityName, app.updatedAt) {
-        AppIconData(app.packageName, app.activityName, app.updatedAt)
+    val style = LocalLauncherStyle.current.iconStyle
+    val background = if (style == IconStyle.THEMED) MaterialTheme.colorScheme.primaryContainer.toArgb() else 0
+    val foreground = if (style == IconStyle.THEMED) MaterialTheme.colorScheme.onPrimaryContainer.toArgb() else 0
+    val model = remember(app.packageName, app.activityName, app.updatedAt, style, background, foreground) {
+        AppIconData(app.packageName, app.activityName, app.updatedAt, style, background, foreground)
     }
     AsyncImage(
         model = model,
@@ -89,7 +98,7 @@ fun AppGridTile(
     }
 }
 
-/** Full-width row for the list layout of the drawer. */
+/** Full-width row for the list layout of the drawer; text-only (no icon) in minimal mode. */
 @Composable
 fun AppListRow(
     app: AppInfo,
@@ -97,6 +106,7 @@ fun AppListRow(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     supportingText: String? = null,
+    showIcon: Boolean = true,
 ) {
     val haptics = LocalHapticFeedback.current
     Row(
@@ -110,14 +120,22 @@ fun AppListRow(
                     onLongClick()
                 },
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = if (showIcon) 12.dp else 16.dp, vertical = if (showIcon) 8.dp else 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,
     ) {
-        AppIcon(app, 40.dp)
-        Spacer(Modifier.width(16.dp))
+        if (showIcon) {
+            AppIcon(app, 40.dp)
+            Spacer(Modifier.width(16.dp))
+        }
         Column(Modifier.weight(1f)) {
-            Text(app.label, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                app.label,
+                style = if (showIcon) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (supportingText != null) {
                 Text(
                     supportingText,

@@ -11,13 +11,47 @@ enum class DrawerLayout { GRID, LIST }
 @Serializable
 enum class DrawerTab { ALPHABETICAL, CATEGORIES }
 
+/** Colour themes. [supportsLight] is false for themes that are always dark. */
+@Serializable
+enum class AppTheme(val supportsLight: Boolean) {
+    /** Colours extracted from the wallpaper (Android 12+), Classic on older versions. */
+    MATERIAL_YOU(true),
+    CLASSIC(true),
+    /** Pure-black surfaces: maximum contrast and battery savings on OLED screens. */
+    AMOLED(false),
+    /** Vibrant multi-hue palette with per-category colours and a gradient clock. */
+    COLORFUL(true),
+    /** Deep-night surfaces with glowing cyan / magenta / lime accents. */
+    NEON(false),
+    /** Black, white and greys only. Pairs well with minimal mode. */
+    MONOCHROME(true),
+}
+
+/** Colour of text drawn directly on the wallpaper (home screen clock, favourites). */
+@Serializable
+enum class HomeTextColor { AUTO, LIGHT, DARK }
+
+@Serializable
+enum class IconStyle {
+    ORIGINAL,
+    /** Android 13-style monochrome icons tinted with the theme; desaturated when an app has none. */
+    THEMED,
+    GRAYSCALE,
+}
+
 /** Launcher-wide user preferences (persisted in DataStore, included in backups). */
 @Serializable
 data class LauncherSettings(
     val onboardingCompleted: Boolean = false,
     val modelSetupSeen: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val dynamicColor: Boolean = true,
+    val appTheme: AppTheme = AppTheme.MATERIAL_YOU,
+    /** Text-only, distraction-free home screen and app drawer. */
+    val minimalMode: Boolean = false,
+    val homeTextColor: HomeTextColor = HomeTextColor.AUTO,
+    /** Soft gradient behind home text so it stays readable on busy wallpapers. */
+    val homeTextShade: Boolean = true,
+    val iconStyle: IconStyle = IconStyle.ORIGINAL,
     val drawerLayout: DrawerLayout = DrawerLayout.GRID,
     val drawerTab: DrawerTab = DrawerTab.ALPHABETICAL,
     val gridColumns: Int = 4,
