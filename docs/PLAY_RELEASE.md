@@ -14,6 +14,13 @@ Everything else (the launcher, the on-device AI, the other tools) is identical. 
 fails if a permission that Google Play restricts for this kind of app reaches its manifest
 (`verifyPlayReleasePlayPolicy`), or if a release has nowhere to send reports of AI replies.
 
+## How new features reach the Play version
+
+New features are built and tried in the full version first. A feature is switched on in the Play
+version only after it has been tested on a phone and checked against Google Play's policies;
+until then a switch in `app/build.gradle.kts` keeps it off in the Play build. Features that
+Google Play doesn't allow, such as all-files access, stay in the full version.
+
 ## 1. One-time setup
 
 1. **Developer account.** Create one at play.google.com/console (one-time US$25 fee and identity
