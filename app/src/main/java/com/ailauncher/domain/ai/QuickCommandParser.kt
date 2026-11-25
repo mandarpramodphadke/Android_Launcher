@@ -13,7 +13,14 @@ import java.util.Locale
  * "alarm at 7am", "flashlight on"). They execute instantly, work before the model is downloaded
  * and never wake the LLM; anything else falls through to Qwen3.
  */
-class QuickCommandParser(private val now: () -> ZonedDateTime = { ZonedDateTime.now() }) {
+class QuickCommandParser(
+    /**
+     * The BETTER_ANSWERS commands: "battery level", "phone specs", "how much storage do I have" →
+     * get_device_info, and "when am I free tomorrow?" → that day's plan with its free slots.
+     */
+    private val betterAnswers: Boolean = false,
+    private val now: () -> ZonedDateTime = { ZonedDateTime.now() },
+) {
 
     fun parse(input: String): ToolCommand? {
         val text = clean(input).lowercase(Locale.ROOT)
@@ -25,6 +32,7 @@ class QuickCommandParser(private val now: () -> ZonedDateTime = { ZonedDateTime.
 
         ORGANIZE.matchEntire(text)?.let { return ToolCommand.SortApps }
         AGENDA.matchEntire(text)?.let { return ToolCommand.GetTodayAgenda }
+        if (betterAnswers) DEVICE_INFO.matchEntire(text)?.let { return ToolCommand.GetDeviceInfo }
 
         TOGGLE.matchEntire(text)?.let { m ->
             val setting = DeviceSetting.fromWire(m.groupValues[3]) ?: return@let
@@ -102,6 +110,13 @@ class QuickCommandParser(private val now: () -> ZonedDateTime = { ZonedDateTime.
             val date = DateRangeParser.parseDay(day, today, preferFuture = true) ?: return@let
             return ToolCommand.ManagePlanner(PlannerAction.GET_DAY_PLAN, date)
         }
+        if (betterAnswers) {
+            FREE_TIME.matchEntire(text)?.let { m ->
+                val day = m.groupValues[1].ifBlank { "today" }
+                val date = DateRangeParser.parseDay(day, today, preferFuture = true) ?: return@let
+                return ToolCommand.ManagePlanner(PlannerAction.GET_DAY_PLAN, date)
+            }
+        }
 
         NOTIFICATIONS.matchEntire(text)?.let { m ->
             return ToolCommand.SummarizeNotifications(m.groupValues[1].trim().takeIf { it.isNotEmpty() })
@@ -178,6 +193,12 @@ class QuickCommandParser(private val now: () -> ZonedDateTime = { ZonedDateTime.
     private companion object {
         val ORGANIZE = Regex("""^(organi[sz]e|sort|categori[sz]e|tidy( up)?|clean up)\s+(all\s+)?(my\s+)?(apps|app drawer|home screen)$""")
         val AGENDA = Regex("""^(summari[sz]e my day|what'?s (on )?my (day|schedule|agenda)( today)?|my (day|schedule|agenda)( today)?|what do i have today)\??$""")
+        val DEVICE_INFO = Regex(
+            """^(?:(?:what are|show|tell me)\s+)?(?:my\s+|this\s+)?(?:phone|device|system|mobile)\s+(?:specs|specifications|info|information|details)\??$""" +
+                """|^(?:what(?:'s| is)\s+my\s+)?battery(?:\s+(?:level|status|percentage|health))?\??$""" +
+                """|^how much (?:battery|charge)(?:\s+(?:do i have|is)?\s*left)?\??$""" +
+                """|^how much (?:free\s+)?(?:storage|space|ram|memory)(?:\s+(?:do i have|is (?:left|free)|is there))?\??$""",
+        )
         val TOGGLE = Regex("""^(?:turn|switch|toggle)\s+(on|off)?\s*(the\s+)?(flashlight|torch|wi-?fi|bluetooth|dnd|do not disturb)\s*(on|off)?$""")
         val TOGGLE_SUFFIX = Regex("""^(flashlight|torch|wi-?fi|bluetooth|dnd|do not disturb)\s+(on|off)$""")
         val TIMER = Regex("""^(?:set\s+)?(?:a\s+)?timer\s+(?:for\s+)?(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)$""")
@@ -215,6 +236,11 @@ class QuickCommandParser(private val now: () -> ZonedDateTime = { ZonedDateTime.
         )
         val NAMED_LIST = Regex("""^(?:show|open|view|see|check)\s+(?:me\s+)?(?:my\s+)?([a-z]+)\s+list$""")
         val NOT_LISTS = setOf("to", "my", "the", "play", "contact", "contacts", "favorites", "favourites", "block", "black", "white", "guest", "mailing", "email")
+        /** "when am I free tomorrow?", "do I have any free time on Friday afternoon?" */
+        val FREE_TIME = Regex(
+            """^(?:when am i free|am i free|when do i have (?:any |some )?free time|do i have (?:any |some )?free time|what free time do i have)""" +
+                """(?:\s+(?:on|for))?\s*(today|tomorrow|tonight|(?:next\s+|this\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)?(?:\s+(?:morning|afternoon|evening))?\??$""",
+        )
         val DAY_PLAN = Regex("""^(?:show\s+(?:me\s+)?|what'?s\s+|what\s+is\s+)?(?:my\s+)?(?:day\s+plan|plan|planner|time\s+blocks)(?:\s+for)?\s*(today|tomorrow|tonight|(?:next\s+|this\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)?\??$""")
         val NOTIFICATIONS = Regex("""^(?:summari[sz]e|show|read|check)\s+(?:me\s+)?(?:my\s+)?(?:recent\s+|latest\s+|today'?s\s+)?notifications(?:\s+from\s+(.+))?$""")
         val WHAT_DID_I_MISS = Regex("""^what\s+did\s+i\s+miss(\s+today)?\??$""")

@@ -19,6 +19,7 @@ import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.model.AssistantFeatures
 import com.ailauncher.domain.model.FolderAccent
 import com.ailauncher.domain.model.FolderRule
 import com.ailauncher.domain.repository.ChatRepository
@@ -49,7 +50,7 @@ class ChatAgentPromptTest {
 
     private val agent = agentWithContext(4096)
 
-    private fun agentWithContext(nCtx: Int) = ChatAgent(
+    private fun agentWithContext(nCtx: Int, features: AssistantFeatures = AssistantFeatures()) = ChatAgent(
         llm = FakeLlm(nCtx),
         chatRepository = FakeChatRepository(),
         actionExecutor = object : ActionExecutor {
@@ -58,6 +59,7 @@ class ChatAgentPromptTest {
         settingsRepository = FakeSettings(),
         folderRepository = FakeFolders(),
         scope = CoroutineScope(Dispatchers.Unconfined),
+        features = features,
     )
 
     private val sentAt = ZonedDateTime.of(2026, 11, 23, 10, 15, 0, 0, ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -163,6 +165,30 @@ class ChatAgentPromptTest {
         export("tool_folder", prompt)
     }
 
+    @Test
+    fun betterAnswersPromptHasTheGeneralRulesAndTheDeviceTool() {
+        val better = agentWithContext(4096, AssistantFeatures(betterAnswers = true))
+        val prompt = better.buildPrompt(listOf(message(1, ChatRole.USER, "What's the difference between RAM and storage?")), InferenceMode.FAST_ACTION)
+        assertThat(prompt).startsWith("<|im_start|>system\n" + SystemPrompts.generalAssistant + "\n\n# Tools")
+        assertThat(prompt).contains("\"name\": \"get_device_info\"")
+        // Exported for replay with tools/llm-host-harness.
+        GENERAL_QUESTIONS.forEach { (name, text) ->
+            export("v2_general_$name", better.buildPrompt(listOf(message(1, ChatRole.USER, text)), InferenceMode.FAST_ACTION))
+        }
+    }
+
+    /** General questions (no phone action), to replay against the real model. */
+    @Test
+    fun exportsGeneralQuestionPrompts() {
+        GENERAL_QUESTIONS.forEach { (name, text) ->
+            export("general_$name", agent.buildPrompt(listOf(message(1, ChatRole.USER, text)), InferenceMode.FAST_ACTION))
+        }
+        export(
+            "general_reasoning_models",
+            agent.buildPrompt(listOf(message(1, ChatRole.USER, GENERAL_QUESTIONS.getValue("models"), InferenceMode.REASONING)), InferenceMode.REASONING),
+        )
+    }
+
     private fun export(name: String, prompt: String) {
         val dir = File("build/prompt-fixtures").apply { mkdirs() }
         File(dir, "$name.txt").writeText(prompt)
@@ -215,5 +241,17 @@ class ChatAgentPromptTest {
         override val modelConfig: Flow<ModelConfig> = flowOf(ModelConfig())
         override suspend fun updateLauncherSettings(transform: (LauncherSettings) -> LauncherSettings) = Unit
         override suspend fun updateModelConfig(transform: (ModelConfig) -> ModelConfig) = Unit
+    }
+
+    companion object {
+        val GENERAL_QUESTIONS = mapOf(
+            "models" to "I am asking about offline llm models, according to my device specifications which LLM model I can use without any issues for best results?",
+            "battery" to "Is it bad to charge my phone overnight?",
+            "ram" to "What's the difference between RAM and storage on a phone?",
+            "credit" to "How does a credit score work in India?",
+            "meal" to "Give me a simple 3-day vegetarian meal plan",
+            "python" to "Which is better for a beginner, Python or Java?",
+            "sky" to "Why is the sky blue?",
+        )
     }
 }

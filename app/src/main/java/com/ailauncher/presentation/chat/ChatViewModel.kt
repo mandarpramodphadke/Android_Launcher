@@ -2,7 +2,6 @@ package com.ailauncher.presentation.chat
 
 import android.net.Uri
 import com.ailauncher.data.chat.ChatBackgroundStore
-import com.ailauncher.domain.ai.SystemPrompts
 import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.ChatBackground
 import com.ailauncher.domain.model.LauncherSettings
@@ -364,7 +363,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /** The exact system prompt [profile] produces, for "Show the full prompt". */
-    fun systemPromptFor(profile: AssistantProfile): String = SystemPrompts.assistant(profile)
+    fun systemPromptFor(profile: AssistantProfile): String = agent.systemPrompt(profile)
 
     fun unloadModel() {
         viewModelScope.launch { llm.unload() }

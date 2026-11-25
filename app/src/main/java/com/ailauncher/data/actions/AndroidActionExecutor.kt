@@ -13,16 +13,25 @@ import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CategorySource
 import com.ailauncher.domain.model.CustomFolder
-import com.ailauncher.domain.repository.FolderRepository
 import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.CategorizationScheduler
+import com.ailauncher.domain.repository.FolderRepository
+import com.ailauncher.domain.repository.ModelRepository
 import com.ailauncher.domain.repository.ReminderRepository
 import com.ailauncher.domain.repository.ReminderScheduleResult
+import com.ailauncher.domain.repository.SettingsRepository
+import com.ailauncher.domain.repository.SystemInfoRepository
 import com.ailauncher.domain.search.FuzzyMatcher
+import com.ailauncher.domain.system.ModelAdvice
+import com.ailauncher.domain.system.SystemFormat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -30,6 +39,7 @@ import java.time.format.FormatStyle
 import java.util.Calendar
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.roundToInt
 
 /** Maps validated [ToolCommand]s onto Android system APIs. */
 @Singleton
@@ -43,6 +53,9 @@ class AndroidActionExecutor @Inject constructor(
     private val launcherTools: LauncherToolExecutor,
     private val folderRepository: FolderRepository,
     private val navigator: LauncherNavigator,
+    private val systemInfo: SystemInfoRepository,
+    private val models: ModelRepository,
+    private val settings: SettingsRepository,
 ) : ActionExecutor {
 
     override suspend fun execute(command: ToolCommand): ActionResult = when (command) {
@@ -53,6 +66,7 @@ class AndroidActionExecutor @Inject constructor(
         is ToolCommand.ToggleSetting -> toggle(command)
         ToolCommand.SortApps -> sortApps()
         ToolCommand.GetTodayAgenda -> agenda()
+        ToolCommand.GetDeviceInfo -> deviceInfo()
         is ToolCommand.ListUnusedApps -> launcherTools.listUnusedApps(command)
         is ToolCommand.FindLargestFiles -> launcherTools.findLargestFiles(command)
         is ToolCommand.QueryFilesByActivity -> launcherTools.queryFiles(command)
@@ -169,6 +183,71 @@ class AndroidActionExecutor @Inject constructor(
     private suspend fun agenda(): ActionResult {
         val agenda = agendaProvider.today()
         return ActionResult.ok(agenda.summary, agenda.data)
+    }
+
+    /**
+     * This phone's specs and status for the assistant (read on the device, never sent anywhere),
+     * with a verdict for each downloadable AI model: "which model can I run?" gets a real answer.
+     */
+    private suspend fun deviceInfo(): ActionResult {
+        val details = systemInfo.details()
+        val live = systemInfo.live().first()
+        val config = settings.modelConfig.first()
+        val device = details.device
+        val phone = listOf(device.brand, device.model).filter { it.isNotBlank() }.distinct().joinToString(" ").ifEmpty { "This phone" }
+        val ram = SystemFormat.installedRam(live.memory.totalBytes)
+        val storage = live.storage.firstOrNull()
+        val battery = live.battery
+        val active = models.spec
+        val fits = ModelAdvice.forDevice(models.catalog, live.memory.totalBytes, storage?.freeBytes, config.activeModelId)
+        val cpu = buildString {
+            append(details.cpu.cores).append(" cores")
+            if (details.cpu.clusters.isNotEmpty()) {
+                append(": ")
+                append(
+                    details.cpu.clusters.joinToString(", ") { c ->
+                        "${c.cores}×${c.coreName ?: "core"}" + (c.maxKhz?.let { " ${SystemFormat.frequency(it)}" } ?: "")
+                    },
+                )
+            }
+        }
+        val data = buildJsonObject {
+            put("phone", phone)
+            put("android", "${device.androidVersion} (API ${device.sdkInt})")
+            details.cpu.name?.let { put("chip", it) }
+            put("cpu", cpu)
+            details.gpu.renderer?.let { put("gpu", it) }
+            put("ram", "$ram (${SystemFormat.memory(live.memory.availableBytes)} free now)")
+            storage?.let { put("storage", "${SystemFormat.bytes(it.capacityBytes ?: it.totalBytes)} (${SystemFormat.bytes(it.freeBytes)} free)") }
+            battery?.let { b ->
+                put(
+                    "battery",
+                    listOfNotNull(b.levelPercent?.let { "$it%" }, b.state.lowercase(), b.health?.let { "health ${it.lowercase()}" }, b.temperatureC?.let { "${it.roundToInt()} °C" })
+                        .joinToString(", "),
+                )
+            }
+            put("ai_model_in_use", "${active.displayName} (${SystemFormat.bytes(active.sizeBytes)}), ${config.resolvedContextSize(live.memory.totalBytes)}-token context, ${if (config.gpuOffload) "GPU" else "CPU"}")
+            putJsonArray("ai_models") {
+                fits.forEach { fit ->
+                    add(
+                        buildJsonObject {
+                            put("name", fit.spec.displayName)
+                            put("download", SystemFormat.bytes(fit.spec.sizeBytes))
+                            put("fit", fit.verdict)
+                            put("note", fit.note + (if (fit.inUse) " (in use)" else "") + (if (!fit.enoughStorage) "; not enough free storage" else ""))
+                        },
+                    )
+                }
+            }
+        }
+        val message = listOfNotNull(
+            phone,
+            "Android ${device.androidVersion}",
+            "$ram RAM",
+            storage?.let { "${SystemFormat.bytes(it.freeBytes)} free" },
+            battery?.levelPercent?.let { "battery $it%" },
+        ).joinToString(" · ")
+        return ActionResult.ok(message, data)
     }
 
     private suspend fun start(intent: Intent): Boolean = withContext(Dispatchers.Main) {

@@ -885,6 +885,7 @@ private fun toolPresentation(name: String): Pair<ImageVector, String> = when (na
     ToolNames.TOGGLE_SETTING -> Icons.Rounded.ToggleOn to "Device setting"
     ToolNames.SORT_APPS -> Icons.Rounded.AutoAwesome to "Organize apps"
     ToolNames.GET_TODAY_AGENDA -> Icons.Rounded.CalendarToday to "Today's agenda"
+    ToolNames.GET_DEVICE_INFO -> Icons.Rounded.Memory to "This phone"
     ToolNames.LIST_UNUSED_APPS -> Icons.Rounded.Apps to "Unused apps"
     ToolNames.FIND_LARGEST_FILES -> Icons.Rounded.Storage to "Largest files"
     ToolNames.QUERY_FILES_BY_ACTIVITY -> Icons.Rounded.FolderOpen to "Files"

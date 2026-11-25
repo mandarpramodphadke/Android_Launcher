@@ -69,8 +69,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 7
-        versionName = "1.6.0"
+        versionCode = 8
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -118,6 +118,7 @@ android {
     // 1.6: CHAT_PANELS (chat and System info slide in as panels that follow the finger),
     // CHAT_CUSTOMIZATION (compact think button, chat background, assistant behaviour),
     // MORE_CALENDARS (choose device calendars, subscribe to calendar links, import .ics files).
+    // 1.6.1: BETTER_ANSWERS (a system prompt that answers general questions, and get_device_info).
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -132,6 +133,7 @@ android {
             buildConfigField("boolean", "CHAT_PANELS", "true")
             buildConfigField("boolean", "CHAT_CUSTOMIZATION", "true")
             buildConfigField("boolean", "MORE_CALENDARS", "true")
+            buildConfigField("boolean", "BETTER_ANSWERS", "true")
         }
         create("play") {
             dimension = "distribution"
@@ -147,6 +149,7 @@ android {
             buildConfigField("boolean", "CHAT_PANELS", "false")
             buildConfigField("boolean", "CHAT_CUSTOMIZATION", "false")
             buildConfigField("boolean", "MORE_CALENDARS", "false")
+            buildConfigField("boolean", "BETTER_ANSWERS", "false")
         }
     }
 

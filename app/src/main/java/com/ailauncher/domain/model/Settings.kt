@@ -39,6 +39,15 @@ enum class IconStyle {
     GRAYSCALE,
 }
 
+/**
+ * Assistant features that depend on the build (full first, Google Play later). Provided from
+ * BuildConfig by the app module, so the domain layer stays free of Android.
+ */
+data class AssistantFeatures(
+    /** The general-knowledge system prompt and the get_device_info tool. */
+    val betterAnswers: Boolean = false,
+)
+
 /** What is drawn behind the assistant's messages. */
 @Serializable
 enum class ChatBackground { DEFAULT, WALLPAPER, PHOTO }

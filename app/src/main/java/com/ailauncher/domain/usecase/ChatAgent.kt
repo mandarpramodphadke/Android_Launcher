@@ -17,6 +17,7 @@ import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.ai.ToolDefinitions
 import com.ailauncher.domain.ai.ToolRouter
 import com.ailauncher.domain.ai.ToolRouting
+import com.ailauncher.domain.model.AssistantFeatures
 import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.ChatRole
@@ -79,12 +80,16 @@ class ChatAgent @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val folderRepository: FolderRepository,
     @ApplicationScope private val scope: CoroutineScope,
+    private val features: AssistantFeatures = AssistantFeatures(),
 ) {
     /** In-memory view of the reply being streamed; persisted to Room once complete. */
     data class StreamingReply(val messageId: Long, val output: ParsedOutput)
 
     private val toolRouter = ToolRouter()
-    private val quickCommands = QuickCommandParser()
+    private val quickCommands = QuickCommandParser(betterAnswers = features.betterAnswers)
+
+    /** The system prompt the model gets for [profile] (also shown in the chat's customize sheet). */
+    fun systemPrompt(profile: AssistantProfile): String = SystemPrompts.assistant(profile, features.betterAnswers)
     private val mutex = Mutex()
 
     @Volatile
@@ -164,8 +169,8 @@ class ChatAgent @Inject constructor(
         scope.launch {
             profile = settingsRepository.launcherSettings.first().assistant
             val prefix = Qwen3PromptBuilder.build(
-                messages = listOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant(profile))),
-                tools = ToolDefinitions.forContext(llm.contextSize),
+                messages = listOf(PromptMessage(PromptMessage.Role.SYSTEM, systemPrompt(profile))),
+                tools = ToolDefinitions.forContext(llm.contextSize, features.betterAnswers),
                 addGenerationPrompt = false,
             )
             try {
@@ -357,7 +362,7 @@ class ChatAgent @Inject constructor(
         folderContext: String? = null,
         profile: AssistantProfile = this.profile,
     ): String {
-        val messages = mutableListOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant(profile)))
+        val messages = mutableListOf(PromptMessage(PromptMessage.Role.SYSTEM, systemPrompt(profile)))
         val lastUser = history.indexOfLast { it.role == ChatRole.USER }
         for ((index, m) in history.withIndex()) {
             when (m.role) {
@@ -380,7 +385,7 @@ class ChatAgent @Inject constructor(
             }
         }
         // The tool set depends only on n_ctx, so it is identical across turns (prefix cache friendly).
-        return Qwen3PromptBuilder.build(messages, ToolDefinitions.forContext(llm.contextSize), enableThinking = mode == InferenceMode.REASONING)
+        return Qwen3PromptBuilder.build(messages, ToolDefinitions.forContext(llm.contextSize, features.betterAnswers), enableThinking = mode == InferenceMode.REASONING)
     }
 
     private fun renderUserTurn(m: ChatMessage, folderContext: String? = null): String {

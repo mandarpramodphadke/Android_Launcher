@@ -1,5 +1,6 @@
 package com.ailauncher.di
 
+import com.ailauncher.BuildConfig
 import android.content.Context
 import androidx.room.Room
 import androidx.work.WorkManager
@@ -45,6 +46,7 @@ import com.ailauncher.domain.repository.AppUsageRepository
 import com.ailauncher.domain.repository.ContactRepository
 import com.ailauncher.domain.repository.ContentReportRepository
 import com.ailauncher.domain.repository.SystemInfoRepository
+import com.ailauncher.domain.model.AssistantFeatures
 import com.ailauncher.domain.repository.CalendarSourcesRepository
 import com.ailauncher.domain.repository.DockRepository
 import com.ailauncher.domain.repository.FileRepository
@@ -145,6 +147,10 @@ object AppModule {
 
     @Provides
     fun calendarFeedDao(db: AppDatabase): CalendarFeedDao = db.calendarFeedDao()
+
+    /** Assistant features that are on in the full version first (see CLAUDE.md). */
+    @Provides
+    fun assistantFeatures(): AssistantFeatures = AssistantFeatures(betterAnswers = BuildConfig.BETTER_ANSWERS)
 }
 
 @Module

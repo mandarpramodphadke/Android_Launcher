@@ -30,6 +30,14 @@ Google Play doesn't allow, such as all-files access, stay in the full version.
 | 1.6 | Chat and System info as sliding panels | `CHAT_PANELS` | Full only: waiting for a phone test |
 | 1.6 | Compact think button, chat background, assistant behaviour | `CHAT_CUSTOMIZATION` | Full only: waiting for a phone test |
 | 1.6 | Choose device calendars, calendar links, .ics import | `MORE_CALENDARS` | Full only: waiting for a phone test |
+| 1.6.1 | Answers to general questions, "which model suits my phone" (`get_device_info`) | `BETTER_ANSWERS` | Full only: waiting for a phone test |
+
+Policy check for 1.6.1: no new permission and no new data leaving the phone. `get_device_info`
+reads the same public, permission-free details as the System info page (no device identifiers)
+and hands them only to the on-device model, so the Data safety answers don't change. The new
+prompt lets the assistant answer general questions, so it produces a wider range of text; the
+safety rule stays in the prompt, and the AI disclosure and in-app reporting of replies (required
+by the AI-Generated Content policy) already cover every reply.
 
 Policy check for 1.6: no new permission. The chat background uses Android's photo picker (no
 storage permission). Assistant instructions stay on the phone and the built-in safety rule always

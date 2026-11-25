@@ -38,6 +38,9 @@ object ModelOutputParser {
     private const val CALL_CLOSE = "</tool_call>"
     private val HIDDEN_TAGS = listOf(THINK_OPEN, THINK_CLOSE, CALL_OPEN, CALL_CLOSE, "<|im_end|>", "<|endoftext|>")
 
+    private val SALVAGE_NAME = Regex(""""name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"""")
+    private val SALVAGE_ARGS = Regex(""""arguments"\s*:\s*(\{.*\})\s*\}\s*$""", RegexOption.DOT_MATCHES_ALL)
+
     private val lenientJson = Json {
         isLenient = true
         ignoreUnknownKeys = true
@@ -124,7 +127,18 @@ object ModelOutputParser {
             val root = decodeObject(candidate) ?: continue
             toToolCall(root)?.let { return it }
         }
-        return null
+        return salvageToolCall(cleaned)
+    }
+
+    /**
+     * Last resort for JSON the model broke, e.g. `{"name": "get_device_info", "arguments": {""}}`
+     * (seen from Qwen3-1.7B): keep the tool name, and the arguments when they still parse on their
+     * own. The router then validates the call as usual.
+     */
+    private fun salvageToolCall(text: String): RawToolCall? {
+        val name = SALVAGE_NAME.find(text)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val args = SALVAGE_ARGS.find(text)?.groupValues?.get(1)?.let(::decodeObject) ?: JsonObject(emptyMap())
+        return RawToolCall(name, args)
     }
 
     private fun toToolCall(root: JsonObject): RawToolCall? {

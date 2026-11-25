@@ -72,7 +72,7 @@ README.md describes the app; docs/PLAY_RELEASE.md describes the Play version and
 
 - Full-only until the owner has tried them on their phone: `TODO_WIDGETS`, `HOME_DRAG_AND_DROP`,
   `SMART_FOLDERS` (1.4), `SYSTEM_INFO` (1.5), `CHAT_PANELS`, `CHAT_CUSTOMIZATION` and
-  `MORE_CALENDARS` (1.6); table in docs/PLAY_RELEASE.md. Their policy check passed: no new
+  `MORE_CALENDARS` (1.6), `BETTER_ANSWERS` (1.6.1); table in docs/PLAY_RELEASE.md. Their policy check passed: no new
   permission, no device identifiers. The only new network use is downloading a calendar from a
   link the user added (described in the privacy policy).
 - Before the first Play submission, set `report.form.url` (Google Form, see docs/report-form.md).

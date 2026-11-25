@@ -52,6 +52,8 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
             ToolNames.SORT_APPS, "organize_apps", "categorize_apps" ->
                 ToolRouting.Valid(ToolCommand.SortApps, summarize(ToolCommand.SortApps))
             ToolNames.GET_TODAY_AGENDA, "get_agenda", "today_agenda" -> valid(agenda(userText))
+            ToolNames.GET_DEVICE_INFO, "device_info", "get_device_specs", "get_system_info", "system_info", "phone_info" ->
+                valid(ToolCommand.GetDeviceInfo)
             ToolNames.LIST_UNUSED_APPS, "unused_apps", "list_inactive_apps", "find_unused_apps", "get_unused_apps" ->
                 valid(listUnusedApps(call.arguments, userText))
             ToolNames.FIND_LARGEST_FILES, "largest_files", "find_large_files", "biggest_files", "find_biggest_files" ->
@@ -439,6 +441,7 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
         }
         ToolCommand.SortApps -> "Organize apps into smart categories"
         ToolCommand.GetTodayAgenda -> "Check today's schedule"
+        ToolCommand.GetDeviceInfo -> "Check this phone's specs"
         is ToolCommand.ListUnusedApps -> "Find apps unused for ${command.inactiveDays?.let { "$it days" } ?: "a while"}"
         is ToolCommand.FindLargestFiles -> "Find the ${command.limit} largest ${command.fileType.displayName}"
         is ToolCommand.QueryFilesByActivity -> filesSummary(command)
@@ -473,7 +476,7 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
                 put("setting", command.setting.wireName)
                 put("state", command.state.name.lowercase(Locale.ROOT))
             }
-            ToolCommand.SortApps, ToolCommand.GetTodayAgenda -> Unit
+            ToolCommand.SortApps, ToolCommand.GetTodayAgenda, ToolCommand.GetDeviceInfo -> Unit
             is ToolCommand.ListUnusedApps -> command.inactiveDays?.let { put("inactiveDays", it) }
             is ToolCommand.FindLargestFiles -> {
                 put("limit", command.limit)

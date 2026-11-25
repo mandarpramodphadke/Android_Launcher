@@ -37,8 +37,17 @@ object ToolDefinitions {
         listOf(setAlarm, setTimer, createReminder, launchApp, toggleSetting, sortApps, getTodayAgenda, manageTodo)
     }
 
-    /** The tool set for a context window. Fixed per n_ctx, so the KV-cached prefix stays valid. */
-    fun forContext(contextSize: Int): List<JsonObject> = if (contextSize >= FULL_TOOLSET_MIN_CONTEXT) all else compact
+    /**
+     * The tool set for a context window. Fixed per n_ctx (and build), so the KV-cached prefix stays
+     * valid. [deviceInfo] adds get_device_info (the build's BETTER_ANSWERS switch).
+     */
+    fun forContext(contextSize: Int, deviceInfo: Boolean = false): List<JsonObject> {
+        val base = if (contextSize >= FULL_TOOLSET_MIN_CONTEXT) all else compact
+        if (!deviceInfo) return base
+        // Right after get_today_agenda, the other "tell me about" tool.
+        val at = base.indexOf(getTodayAgenda) + 1
+        return base.take(at) + getDeviceInfo + base.drop(at)
+    }
 
     private val setAlarm = function(
         name = ToolNames.SET_ALARM,
@@ -104,6 +113,12 @@ object ToolDefinitions {
     private val getTodayAgenda = function(
         name = ToolNames.GET_TODAY_AGENDA,
         description = "Get today's events, reminders, alarm, planned blocks and urgent to-dos. Use for questions about the day.",
+        required = emptyList(),
+    ) {}
+
+    private val getDeviceInfo = function(
+        name = ToolNames.GET_DEVICE_INFO,
+        description = "Get this phone's specs and status: model, Android version, processor, GPU, RAM, storage, battery level, and which on-device AI (LLM) models it can run well.",
         required = emptyList(),
     ) {}
 

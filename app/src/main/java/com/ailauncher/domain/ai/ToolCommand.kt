@@ -52,6 +52,12 @@ sealed interface ToolCommand {
         override val isReadOnly get() = true
     }
 
+    /** This phone's specs and status, and which on-device AI models suit it. */
+    data object GetDeviceInfo : ToolCommand {
+        override val toolName get() = ToolNames.GET_DEVICE_INFO
+        override val isReadOnly get() = true
+    }
+
     /** [inactiveDays] null = the user's default threshold from Settings. */
     data class ListUnusedApps(val inactiveDays: Int?) : ToolCommand {
         override val toolName get() = ToolNames.LIST_UNUSED_APPS
@@ -190,4 +196,5 @@ object ToolNames {
     const val MANAGE_PLANNER = "manage_planner"
     const val SUMMARIZE_NOTIFICATIONS = "summarize_notifications"
     const val CONTACT_ACTION = "contact_action"
+    const val GET_DEVICE_INFO = "get_device_info"
 }

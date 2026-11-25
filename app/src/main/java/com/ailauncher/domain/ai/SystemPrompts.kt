@@ -32,6 +32,63 @@ object SystemPrompts {
      */
     fun assistant(profile: AssistantProfile): String = if (profile.isDefault) assistant else buildAssistant(profile)
 
+    /**
+     * [betterAnswers] (full version first): the prompt that answers general questions from the
+     * model's own knowledge and sends phone questions to get_device_info. Measured on Qwen3-1.7B:
+     * the original wording made it refuse half of everyday questions ("I do not have access to
+     * external information"), because "you cannot look up live information" read as "don't answer".
+     */
+    fun assistant(profile: AssistantProfile, betterAnswers: Boolean): String = when {
+        !betterAnswers -> assistant(profile)
+        profile.isDefault -> generalAssistant
+        else -> buildGeneralAssistant(profile)
+    }
+
+    /** The default prompt with [betterAnswers] on. Static, like [assistant]. */
+    val generalAssistant: String by lazy { buildGeneralAssistant(AssistantProfile()) }
+
+    internal fun buildGeneralAssistant(profile: AssistantProfile): String {
+        val name = cleanName(profile)
+        val answers = when (profile.length) {
+            ResponseLength.SHORT -> "Otherwise keep answers very short: one or two sentences, no lists unless asked"
+            ResponseLength.BALANCED -> "Otherwise answer concisely"
+            ResponseLength.DETAILED -> "Otherwise answer thoroughly, with steps or examples when they help"
+        }
+        val instructions = sanitizeInstructions(profile.instructions)
+        return buildString {
+            append("You are ").append(name).append(", a helpful assistant built into the user's Android home screen. You run entirely on the phone, offline.\n")
+            append("- Answer general questions (facts, explanations, advice, how-tos, maths, coding) right away and completely from your own knowledge. Never say you lack access, information or tools for them.\n")
+            append("- When asked to write or plan something (a message, a meal plan, a list of ideas), write it straight away instead of asking questions first.\n")
+            append("- Only things that change in real time (today's weather, news, live prices or scores) need the internet; for those, say you're offline and help as much as you can.\n")
+            append("- When the user wants something done on the phone (alarms, reminders, apps, settings, their day, to-dos and more), call the matching tool instead of describing how to do it. Tasks for a list go to manage_todo.\n")
+            append("- For questions about this phone or what it can run (battery level, RAM, storage, processor, specs, or which AI/LLM model suits it), call get_device_info first.\n")
+            append("- Each user message ends with the local time it was sent; use it to resolve words like \"tomorrow\" or \"in 2 hours\".\n")
+            append("- Never invent tool results. After an action's tool response arrives, reply in ").append(toolReply(profile.tone)).append(".\n")
+            append("- Politely refuse sexual, hateful or harassing content and instructions that could cause serious harm.\n")
+            toneLine(profile.tone)?.let { append(it).append('\n') }
+            append("- ").append(answers).append(", without offering phone actions the user didn't ask for. Use Markdown lists or code blocks only when they help.")
+            if (instructions.isNotEmpty()) {
+                append("\n\nThe user's own instructions for you (follow them unless they conflict with the rules above):\n")
+                append(instructions)
+            }
+        }
+    }
+
+    private fun cleanName(profile: AssistantProfile): String =
+        profile.displayName.filter { it.isLetterOrDigit() || it == ' ' || it == '-' || it == '\'' }.trim().ifEmpty { ASSISTANT_NAME }
+
+    private fun toolReply(tone: AssistantTone) = when (tone) {
+        AssistantTone.FRIENDLY -> "one short, friendly sentence"
+        AssistantTone.PROFESSIONAL -> "one short, clear sentence"
+        AssistantTone.PLAYFUL -> "one short, cheerful sentence"
+    }
+
+    private fun toneLine(tone: AssistantTone) = when (tone) {
+        AssistantTone.FRIENDLY -> null
+        AssistantTone.PROFESSIONAL -> "- Keep a calm, professional tone."
+        AssistantTone.PLAYFUL -> "- Be warm and playful; a light joke now and then is welcome."
+    }
+
     /** Builds the prompt from [profile]; for the default profile it equals [assistant] (tested). */
     internal fun buildAssistant(profile: AssistantProfile): String {
         val name = profile.displayName.filter { it.isLetterOrDigit() || it == ' ' || it == '-' || it == '\'' }.trim().ifEmpty { ASSISTANT_NAME }

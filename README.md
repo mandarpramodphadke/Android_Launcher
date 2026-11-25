@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.6.1: better answers to general questions](#whats-new-in-161-better-answers-to-general-questions)
 1. [What's new in 1.6: sliding panels, chat customization, more calendars](#whats-new-in-16-sliding-panels-chat-customization-more-calendars)
 1. [What's new in 1.5: System info](#whats-new-in-15-system-info)
 1. [What's new in 1.4: to-do widgets and smart folders](#whats-new-in-14-to-do-widgets-and-smart-folders)
@@ -30,6 +31,29 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.6.1: better answers to general questions
+
+Full version first (flag `BETTER_ANSWERS`).
+
+- **General questions get real answers.** The old system prompt was written around phone actions,
+  and the 1.7B model read it as "only help with the phone": asked to compare RAM and storage, or
+  how credit scores work in India, it replied that it had no access to that information. With the
+  flag on, the assistant gets a new prompt that tells it to answer facts, explanations, advice,
+  maths and code from its own knowledge, to write what it is asked for (a message, a meal plan)
+  straight away, and to say it is offline only for live information such as news or weather.
+  Tool use is unchanged. The prompt was measured on the real Qwen3-1.7B (see *Verification
+  performed*).
+- **"Which model can my phone run?"** A new read-only tool, `get_device_info`, gives the model
+  this phone's specs (model, Android version, processor, GPU, RAM, storage, battery) and a verdict
+  for each downloadable model: *best*, *good*, *tight* or *too big* for this phone's memory, and
+  whether there is room to download it. The model answers from that instead of guessing. "Battery
+  level", "phone specs" and "how much storage do I have" answer instantly without the model.
+- **Sturdier tool calls.** When the model writes a tool call that isn't valid JSON (seen:
+  `{"name": "get_device_info", "arguments": {""}}`), the tool name is still recovered.
+- With the flag off (the Play version), the prompt and tool list stay byte for byte as in 1.6.0.
 
 ---
 
@@ -573,6 +597,7 @@ use, and grouped `<tool_response>` turns. It is verified against fixtures render
 | `manage_planner` | `action` (schedule_block, reschedule, remove_block, get_day_plan), `dateIso?`, `startTime?`, `durationMinutes?`, `title?`, `blockId?` | Room `PlannerBlockEntity` + calendar events + free slots |
 | `summarize_notifications` | `appName?` (read-only) | the opt-in on-device digest (last 24 h) |
 | `contact_action` | `action` (call, sms, whatsapp), `contactName`, `message?` | Contacts provider → `ACTION_CALL` (or `ACTION_DIAL` without `CALL_PHONE`), `smsto:`, WhatsApp |
+| `get_device_info` | none (read-only; `BETTER_ANSWERS` builds only) | the System info page's reader (`Build`, `/proc`, memory, storage, battery, GPU) plus a verdict per model from `ModelAdvice`, fed back to the model |
 
 **Token budget.** The full tool block is ~1,730 tokens, so it is used when the context is ≥ 3072
 tokens. *Auto* context (the new default) is 4096 on phones with 6 GB+ RAM and 2048 otherwise; at
