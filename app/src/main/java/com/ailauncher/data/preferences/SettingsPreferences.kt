@@ -3,9 +3,13 @@ package com.ailauncher.data.preferences
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.ailauncher.domain.model.AppTheme
+import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ModelConfig
 
@@ -39,6 +43,14 @@ internal object SettingsKeys {
     val AUTO_CONFIRM_LAUNCH = booleanPreferencesKey("auto_confirm_launch")
     val REMINDERS_TO_CALENDAR = booleanPreferencesKey("reminders_to_calendar")
     val HAPTICS = booleanPreferencesKey("haptics")
+    val CHAT_BACKGROUND = stringPreferencesKey("chat_background")
+    val CHAT_BACKGROUND_DIM = floatPreferencesKey("chat_background_dim")
+    val ASSISTANT_NAME = stringPreferencesKey("assistant_name")
+    val ASSISTANT_LENGTH = stringPreferencesKey("assistant_length")
+    val ASSISTANT_TONE = stringPreferencesKey("assistant_tone")
+    val ASSISTANT_INSTRUCTIONS = stringPreferencesKey("assistant_instructions")
+    val HIDDEN_CALENDARS = stringSetPreferencesKey("hidden_calendar_ids")
+    val REMINDER_CALENDAR = longPreferencesKey("reminder_calendar_id")
 
     val CONTEXT_SIZE = intPreferencesKey("model_context_size")
     val THREADS = intPreferencesKey("model_threads")
@@ -82,6 +94,16 @@ internal fun Preferences.toLauncherSettings(): LauncherSettings {
         autoConfirmAppLaunch = this[SettingsKeys.AUTO_CONFIRM_LAUNCH] ?: defaults.autoConfirmAppLaunch,
         saveRemindersToCalendar = this[SettingsKeys.REMINDERS_TO_CALENDAR] ?: defaults.saveRemindersToCalendar,
         hapticFeedback = this[SettingsKeys.HAPTICS] ?: defaults.hapticFeedback,
+        chatBackground = enumOrDefault(this[SettingsKeys.CHAT_BACKGROUND], defaults.chatBackground),
+        chatBackgroundDim = (this[SettingsKeys.CHAT_BACKGROUND_DIM] ?: defaults.chatBackgroundDim).coerceIn(0f, 0.9f),
+        assistant = AssistantProfile(
+            name = this[SettingsKeys.ASSISTANT_NAME]?.take(AssistantProfile.MAX_NAME) ?: defaults.assistant.name,
+            length = enumOrDefault(this[SettingsKeys.ASSISTANT_LENGTH], defaults.assistant.length),
+            tone = enumOrDefault(this[SettingsKeys.ASSISTANT_TONE], defaults.assistant.tone),
+            instructions = this[SettingsKeys.ASSISTANT_INSTRUCTIONS]?.take(AssistantProfile.MAX_INSTRUCTIONS) ?: defaults.assistant.instructions,
+        ),
+        hiddenCalendarIds = this[SettingsKeys.HIDDEN_CALENDARS].orEmpty().mapNotNull { it.toLongOrNull() }.toSet(),
+        reminderCalendarId = this[SettingsKeys.REMINDER_CALENDAR]?.takeIf { it > 0 },
     )
 }
 
@@ -115,6 +137,14 @@ internal fun MutablePreferences.writeLauncherSettings(s: LauncherSettings) {
     this[SettingsKeys.AUTO_CONFIRM_LAUNCH] = s.autoConfirmAppLaunch
     this[SettingsKeys.REMINDERS_TO_CALENDAR] = s.saveRemindersToCalendar
     this[SettingsKeys.HAPTICS] = s.hapticFeedback
+    this[SettingsKeys.CHAT_BACKGROUND] = s.chatBackground.name
+    this[SettingsKeys.CHAT_BACKGROUND_DIM] = s.chatBackgroundDim.coerceIn(0f, 0.9f)
+    this[SettingsKeys.ASSISTANT_NAME] = s.assistant.name.take(AssistantProfile.MAX_NAME)
+    this[SettingsKeys.ASSISTANT_LENGTH] = s.assistant.length.name
+    this[SettingsKeys.ASSISTANT_TONE] = s.assistant.tone.name
+    this[SettingsKeys.ASSISTANT_INSTRUCTIONS] = s.assistant.instructions.take(AssistantProfile.MAX_INSTRUCTIONS)
+    this[SettingsKeys.HIDDEN_CALENDARS] = s.hiddenCalendarIds.map { it.toString() }.toSet()
+    if (s.reminderCalendarId != null) this[SettingsKeys.REMINDER_CALENDAR] = s.reminderCalendarId else remove(SettingsKeys.REMINDER_CALENDAR)
 }
 
 internal fun Preferences.toModelConfig(): ModelConfig {

@@ -32,6 +32,8 @@ import com.ailauncher.data.home.HomeLayoutRepositoryImpl
 import com.ailauncher.data.notifications.NotificationDigestRepositoryImpl
 import com.ailauncher.data.report.ContentReportRepositoryImpl
 import com.ailauncher.data.system.SystemInfoRepositoryImpl
+import com.ailauncher.data.calendar.CalendarSourcesRepositoryImpl
+import com.ailauncher.data.local.dao.CalendarFeedDao
 import com.ailauncher.data.packages.AppLauncher
 import com.ailauncher.data.packages.ShortcutRepositoryImpl
 import com.ailauncher.data.productivity.PlannerRepositoryImpl
@@ -43,6 +45,7 @@ import com.ailauncher.domain.repository.AppUsageRepository
 import com.ailauncher.domain.repository.ContactRepository
 import com.ailauncher.domain.repository.ContentReportRepository
 import com.ailauncher.domain.repository.SystemInfoRepository
+import com.ailauncher.domain.repository.CalendarSourcesRepository
 import com.ailauncher.domain.repository.DockRepository
 import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.repository.FolderRepository
@@ -139,6 +142,9 @@ object AppModule {
 
     @Provides
     fun notificationDao(db: AppDatabase): NotificationDao = db.notificationDao()
+
+    @Provides
+    fun calendarFeedDao(db: AppDatabase): CalendarFeedDao = db.calendarFeedDao()
 }
 
 @Module
@@ -171,4 +177,5 @@ abstract class BindingsModule {
     @Binds abstract fun launcherNavigator(impl: LauncherNavigatorImpl): LauncherNavigator
     @Binds abstract fun contentReportRepository(impl: ContentReportRepositoryImpl): ContentReportRepository
     @Binds abstract fun systemInfoRepository(impl: SystemInfoRepositoryImpl): SystemInfoRepository
+    @Binds abstract fun calendarSourcesRepository(impl: CalendarSourcesRepositoryImpl): CalendarSourcesRepository
 }

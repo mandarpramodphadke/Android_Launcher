@@ -5,7 +5,9 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import com.ailauncher.data.local.entity.CalendarFeedEntity
 import com.ailauncher.data.local.entity.CustomFolderEntity
+import com.ailauncher.data.local.entity.FeedEventEntity
 import com.ailauncher.data.local.entity.HomeItemEntity
 import com.ailauncher.data.local.entity.NotificationDigestEntity
 import com.ailauncher.data.local.entity.PlannerBlockEntity
@@ -226,4 +228,49 @@ interface NotificationDao {
 
     @Query("DELETE FROM notification_digest")
     suspend fun clear()
+}
+
+@Dao
+interface CalendarFeedDao {
+    @Query("SELECT * FROM calendar_feeds ORDER BY createdAt")
+    fun observe(): Flow<List<CalendarFeedEntity>>
+
+    @Query("SELECT * FROM calendar_feeds ORDER BY createdAt")
+    suspend fun all(): List<CalendarFeedEntity>
+
+    @Query("SELECT * FROM calendar_feeds WHERE id = :id")
+    suspend fun get(id: Long): CalendarFeedEntity?
+
+    @Insert
+    suspend fun insert(feed: CalendarFeedEntity): Long
+
+    @Update
+    suspend fun update(feed: CalendarFeedEntity)
+
+    @Query("DELETE FROM calendar_feeds WHERE id = :id")
+    suspend fun deleteFeed(id: Long)
+
+    @Query("DELETE FROM feed_events WHERE feedId = :feedId")
+    suspend fun deleteEvents(feedId: Long)
+
+    @Insert
+    suspend fun insertEvents(events: List<FeedEventEntity>)
+
+    /** Removes a feed and its events together. */
+    @Transaction
+    suspend fun delete(id: Long) {
+        deleteEvents(id)
+        deleteFeed(id)
+    }
+
+    /** Swaps a feed's events for a fresh set and records the sync, all at once. */
+    @Transaction
+    suspend fun replaceEvents(feed: CalendarFeedEntity, events: List<FeedEventEntity>) {
+        deleteEvents(feed.id)
+        if (events.isNotEmpty()) insertEvents(events)
+        update(feed)
+    }
+
+    @Query("SELECT * FROM feed_events WHERE startMillis < :end AND endMillis > :start ORDER BY startMillis LIMIT :limit")
+    suspend fun eventsBetween(start: Long, end: Long, limit: Int = 200): List<FeedEventEntity>
 }

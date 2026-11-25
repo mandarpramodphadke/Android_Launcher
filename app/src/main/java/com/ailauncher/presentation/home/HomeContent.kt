@@ -54,6 +54,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
@@ -80,6 +82,7 @@ import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.AppTheme
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
+import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.SmartExtraction
 import com.ailauncher.domain.model.SmartPill
@@ -166,6 +169,10 @@ internal fun HomeContent(
     callbacks: HomeCallbacks,
     modifier: Modifier = Modifier,
     entrance: HomeEntrance = HomeEntrance(),
+    /** Receives the pager's leftover sideways drag (the assistant panel follows it). */
+    pagerNestedScroll: NestedScrollConnection? = null,
+    /** Sideways drag on the minimal home screen (it has no pager). */
+    panelDrag: Modifier = Modifier,
 ) {
     val drag = remember { HomeDragState() }
     Box(modifier.fillMaxSize().onGloballyPositioned { drag.root = it }) {
@@ -179,7 +186,7 @@ internal fun HomeContent(
                 .padding(horizontal = if (style.minimal) 28.dp else 12.dp),
         ) {
             if (style.minimal) {
-                MinimalHome(state, tint, style, queryState, clip, callbacks, entrance)
+                Box(panelDrag) { MinimalHome(state, tint, style, queryState, clip, callbacks, entrance) }
             } else {
                 Box(
                     Modifier
@@ -187,6 +194,7 @@ internal fun HomeContent(
                         .fillMaxWidth()
                         .entrance(entrance.pages)
                         .onGloballyPositioned { drag.pager = it }
+                        .then(pagerNestedScroll?.let { Modifier.nestedScroll(it) } ?: Modifier)
                         .swipePastLastPage(pagerState, { drag.isDragging }, callbacks.onSwipePastLastPage),
                 ) {
                     // While dragging, every page stays composed so the dragged tile's gesture survives page flips.
@@ -215,7 +223,7 @@ internal fun HomeContent(
                 )
                 Spacer(Modifier.height(10.dp))
                 if (state.settings.showAiCommandBar) {
-                    CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar))
+                    CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar), state.assistantName)
                 }
                 SwipeUpHint(tint, onClick = callbacks.onOpenDrawer)
             }
@@ -403,7 +411,7 @@ private fun MinimalHome(
             )
         }
         Spacer(Modifier.height(20.dp))
-        if (state.settings.showAiCommandBar) CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar))
+        if (state.settings.showAiCommandBar) CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar), state.assistantName)
         Spacer(Modifier.height(16.dp))
     }
 }
@@ -465,7 +473,13 @@ private fun MinimalAppList(entries: List<DockEntry>, searching: Boolean, state: 
 // ----------------------------------------------------------------------------- bottom area
 
 @Composable
-private fun CommandBarArea(queryState: TextFieldState, clip: ClipInsight?, callbacks: HomeCallbacks, modifier: Modifier = Modifier) {
+private fun CommandBarArea(
+    queryState: TextFieldState,
+    clip: ClipInsight?,
+    callbacks: HomeCallbacks,
+    modifier: Modifier = Modifier,
+    assistantName: String = AssistantProfile.DEFAULT_NAME,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val focused by interactionSource.collectIsFocusedAsState()
     val onFocus by rememberUpdatedState(callbacks.onCommandBarFocus)
@@ -477,6 +491,7 @@ private fun CommandBarArea(queryState: TextFieldState, clip: ClipInsight?, callb
         val style = LocalLauncherStyle.current
         LauncherCommandBar(
             state = queryState,
+            placeholder = "Ask $assistantName or search apps",
             onSubmit = callbacks.onSubmitQuery,
             onOpenChat = callbacks.onOpenChat,
             onVoice = callbacks.onVoice,

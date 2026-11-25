@@ -1,5 +1,12 @@
 package com.ailauncher.presentation.chat
 
+import android.net.Uri
+import com.ailauncher.data.chat.ChatBackgroundStore
+import com.ailauncher.domain.ai.SystemPrompts
+import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.ChatBackground
+import com.ailauncher.domain.model.LauncherSettings
+import java.io.File
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.lifecycle.SavedStateHandle
@@ -67,6 +74,13 @@ data class ChatUiState(
     val saveRemindersToCalendar: Boolean = true,
     /** Replies the user reported (hidden behind "Show"). */
     val reportedIds: Set<Long> = emptySet(),
+    val assistant: AssistantProfile = AssistantProfile(),
+    val background: ChatBackground = ChatBackground.DEFAULT,
+    val backgroundDim: Float = LauncherSettings.DEFAULT_CHAT_DIM,
+    /** The picked photo and its version (for the image cache), when there is one. */
+    val backgroundFile: File? = null,
+    val backgroundVersion: Long? = null,
+    val thinkByDefault: Boolean = false,
 )
 
 @HiltViewModel
@@ -81,6 +95,7 @@ class ChatViewModel @Inject constructor(
     private val fileRepository: FileRepository,
     private val reports: ContentReportRepository,
     sharedContent: SharedContentStore,
+    private val backgroundStore: ChatBackgroundStore,
 ) : ViewModel() {
 
     /** The message field. Owned here and edited synchronously by the field (no cursor lag). */
@@ -127,8 +142,10 @@ class ChatViewModel @Inject constructor(
         agent.busy,
         llm.state,
         health,
-        combine(mode, settingsRepository.launcherSettings) { m, s -> m to s.saveRemindersToCalendar },
-    ) { (list, reported), busy, engine, h, (m, calendar) ->
+        combine(mode, settingsRepository.launcherSettings, settingsRepository.modelConfig, backgroundStore.version) { m, s, c, v -> Looks(m, s, c.reasoningByDefault, v) },
+    ) { (list, reported), busy, engine, h, looks ->
+        val m = looks.mode
+        val calendar = looks.settings.saveRemindersToCalendar
         ChatUiState(
             messages = list,
             mode = m,
@@ -140,6 +157,12 @@ class ChatViewModel @Inject constructor(
             }?.message?.tokensPerSecond,
             saveRemindersToCalendar = calendar,
             reportedIds = reported,
+            assistant = looks.settings.assistant,
+            background = looks.settings.chatBackground,
+            backgroundDim = looks.settings.chatBackgroundDim,
+            backgroundFile = backgroundStore.file.takeIf { looks.photoVersion != null },
+            backgroundVersion = looks.photoVersion,
+            thinkByDefault = looks.thinkByDefault,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
@@ -306,9 +329,49 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch { llm.preload() }
     }
 
+    // ------------------------------------------------------------------- customization
+
+    fun setBackground(background: ChatBackground) {
+        viewModelScope.launch { settingsRepository.updateLauncherSettings { it.copy(chatBackground = background) } }
+    }
+
+    fun setBackgroundDim(dim: Float) {
+        viewModelScope.launch { settingsRepository.updateLauncherSettings { it.copy(chatBackgroundDim = dim.coerceIn(0f, 0.9f)) } }
+    }
+
+    /** A photo from the photo picker becomes the chat background. */
+    fun importBackground(uri: Uri) {
+        viewModelScope.launch {
+            if (backgroundStore.import(uri)) {
+                settingsRepository.updateLauncherSettings { it.copy(chatBackground = ChatBackground.PHOTO) }
+            } else {
+                _notices.send("That picture couldn't be opened")
+            }
+        }
+    }
+
+    fun saveAssistant(profile: AssistantProfile, thinkByDefault: Boolean) {
+        viewModelScope.launch {
+            val clean = profile.copy(
+                name = profile.name.trim().take(AssistantProfile.MAX_NAME),
+                instructions = profile.instructions.trim().take(AssistantProfile.MAX_INSTRUCTIONS),
+            )
+            settingsRepository.updateLauncherSettings { it.copy(assistant = clean) }
+            settingsRepository.updateModelConfig { it.copy(reasoningByDefault = thinkByDefault) }
+            mode.value = if (thinkByDefault) InferenceMode.REASONING else InferenceMode.FAST_ACTION
+            _notices.send("Saved. ${clean.displayName} uses the new behaviour from your next message")
+        }
+    }
+
+    /** The exact system prompt [profile] produces, for "Show the full prompt". */
+    fun systemPromptFor(profile: AssistantProfile): String = SystemPrompts.assistant(profile)
+
     fun unloadModel() {
         viewModelScope.launch { llm.unload() }
     }
+
+    /** Everything about how the chat looks and behaves, read from settings. */
+    private data class Looks(val mode: InferenceMode, val settings: LauncherSettings, val thinkByDefault: Boolean, val photoVersion: Long?)
 
     private companion object {
         const val KEY_PROMPT_CONSUMED = "prompt_consumed"

@@ -4,6 +4,10 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.preferencesOf
 import com.ailauncher.domain.model.AppTheme
+import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.AssistantTone
+import com.ailauncher.domain.model.ChatBackground
+import com.ailauncher.domain.model.ResponseLength
 import com.ailauncher.domain.model.HomeTextColor
 import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.LauncherSettings
@@ -31,6 +35,22 @@ class SettingsPreferencesTest {
         )
         val prefs = mutablePreferencesOf().apply { writeLauncherSettings(settings) }
         assertThat(prefs.toLauncherSettings()).isEqualTo(settings)
+    }
+
+    @Test
+    fun roundTripsChatAssistantAndCalendarSettings() {
+        val settings = LauncherSettings(
+            chatBackground = ChatBackground.PHOTO,
+            chatBackgroundDim = 0.7f,
+            assistant = AssistantProfile("Nova", ResponseLength.SHORT, AssistantTone.PLAYFUL, "Use metric units."),
+            hiddenCalendarIds = setOf(3L, 12L),
+            reminderCalendarId = 7L,
+        )
+        val prefs = mutablePreferencesOf().apply { writeLauncherSettings(settings) }
+        assertThat(prefs.toLauncherSettings()).isEqualTo(settings)
+        // Back to "automatic" removes the stored calendar.
+        prefs.writeLauncherSettings(settings.copy(reminderCalendarId = null))
+        assertThat(prefs.toLauncherSettings().reminderCalendarId).isNull()
     }
 
     @Test

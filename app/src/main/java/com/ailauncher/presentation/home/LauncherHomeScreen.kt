@@ -1,5 +1,10 @@
 package com.ailauncher.presentation.home
 
+import androidx.compose.runtime.CompositionLocalProvider
+import com.ailauncher.presentation.chat.AiChatScreen
+import com.ailauncher.presentation.components.LocalNavAnimatedVisibilityScope
+import com.ailauncher.presentation.planner.PlannerTab
+import com.ailauncher.presentation.system.SystemInfoScreen
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
@@ -131,6 +136,9 @@ private data class AppSheetTarget(val app: AppInfo, val item: HomeItem?)
 
 private data class FolderMenuTarget(val folder: CustomFolder, val item: HomeItem?)
 
+/** A request to show the assistant panel, optionally sending [prompt] ("open chat" from elsewhere). */
+data class ChatRequest(val prompt: String?, val id: Long = System.nanoTime())
+
 /** The to-do editor opened from a widget: a new to-do (in [list]) or an existing one. */
 private data class TodoEdit(val item: TodoItem?, val list: String?)
 
@@ -158,6 +166,11 @@ fun LauncherHomeScreen(
     onOpenTodos: () -> Unit = onOpenPlanner,
     /** The System info page (null when this build doesn't have it). */
     onOpenSystemInfo: (() -> Unit)? = null,
+    /** Panels build: show the assistant (and send a prompt) from outside, e.g. a share or the planner. */
+    chatRequest: ChatRequest? = null,
+    onChatRequestHandled: () -> Unit = {},
+    onOpenModelSetup: () -> Unit = {},
+    onOpenPlannerTab: (PlannerTab) -> Unit = { onOpenPlanner() },
     viewModel: HomeViewModel = hiltViewModel(),
     drawerViewModel: AppDrawerViewModel = hiltViewModel(),
     foldersViewModel: FoldersViewModel = hiltViewModel(),
@@ -173,6 +186,29 @@ fun LauncherHomeScreen(
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
+
+    // ------------------------------------------------------------------------ panels
+    // The assistant and System info slide in beside the home pages and follow the finger.
+    val panelsEnabled = BuildConfig.CHAT_PANELS
+    val panels = remember { HomePanelState(systemPanel = BuildConfig.SYSTEM_INFO) }
+    var pendingPrompt by rememberSaveable { mutableStateOf<String?>(null) }
+    val panelDrag = rememberDraggableState { delta -> panels.dispatch(delta) }
+
+    /** Opens the assistant: the panel in this build, otherwise the chat screen. */
+    val openChat: (String?) -> Unit = { prompt ->
+        if (panelsEnabled) {
+            focusManager.clearFocus()
+            pendingPrompt = prompt
+            scope.launch { panels.animateTo(HomePanel.CHAT) }
+        } else {
+            onOpenChat(prompt)
+        }
+    }
+    val openSystemInfo: (() -> Unit)? = when {
+        !BuildConfig.SYSTEM_INFO -> null
+        panelsEnabled -> ({ scope.launch { panels.animateTo(HomePanel.SYSTEM) } })
+        else -> onOpenSystemInfo
+    }
     val snackbar = remember { SnackbarHostState() }
     val launchFactory = rememberLaunchRequestFactory()
 
@@ -303,8 +339,14 @@ fun LauncherHomeScreen(
         editingWidgetId = null
     }
 
+    // A panel in view: Back slides one panel towards home (registered last, so it wins).
+    BackHandler(enabled = panelsEnabled && panels.showingPanel) {
+        scope.launch { panels.animateTo(if (panels.current == HomePanel.SYSTEM) HomePanel.CHAT else HomePanel.HOME) }
+    }
+
     val surfaceIsLight = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    SystemBarIcons(darkIcons = if (drawerMostlyOpen) surfaceIsLight else tint.darkText)
+    val panelMostlyOpen by remember { derivedStateOf { panels.chatProgress > 0.5f } }
+    SystemBarIcons(darkIcons = if (drawerMostlyOpen || (panelsEnabled && panelMostlyOpen)) surfaceIsLight else tint.darkText)
 
     // -------------------------------------------------------------- lock & unlock motion
     val lockFade = remember { Animatable(0f) }
@@ -331,7 +373,7 @@ fun LauncherHomeScreen(
     val currentEditing by rememberUpdatedState(editingWidgetId)
 
     // ------------------------------------------------------------------ voice & events
-    val currentOpenChat by rememberUpdatedState(onOpenChat)
+    val currentOpenChat by rememberUpdatedState(openChat)
     val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { spoken ->
             if (spoken.isNotBlank()) currentOpenChat(spoken)
@@ -402,6 +444,7 @@ fun LauncherHomeScreen(
             focusManager.clearFocus()
             viewModel.clearQuery()
             when {
+                panelsEnabled && panels.showingPanel -> if (press.alreadyOnHome) panels.animateTo(HomePanel.HOME) else panels.snapTo(HomePanel.HOME)
                 drawerVisible -> if (press.alreadyOnHome) drawer.animateTo(DrawerValue.Closed, DrawerSpring) else drawer.snapTo(DrawerValue.Closed)
                 press.alreadyOnHome && pagerState.currentPage != 0 -> pagerState.animateScrollToPage(0)
             }
@@ -416,9 +459,16 @@ fun LauncherHomeScreen(
     }
 
     // "Open my Work folder" from the assistant.
+    LaunchedEffect(chatRequest) {
+        val request = chatRequest ?: return@LaunchedEffect
+        onChatRequestHandled()
+        openChat(request.prompt)
+    }
+
     LaunchedEffect(folderRequest) {
         val id = folderRequest ?: return@LaunchedEffect
         if (drawerVisible) drawer.snapTo(DrawerValue.Closed)
+        if (panelsEnabled && panels.showingPanel) panels.snapTo(HomePanel.HOME)
         openFolderId = id
         onFolderRequestHandled()
     }
@@ -426,7 +476,7 @@ fun LauncherHomeScreen(
     val submitQuery: (String) -> Unit = { text ->
         focusManager.clearFocus()
         viewModel.clearQuery()
-        onOpenChat(text)
+        openChat(text)
     }
 
     val callbacks = HomeCallbacks(
@@ -447,7 +497,7 @@ fun LauncherHomeScreen(
         onDoneEditing = { editingWidgetId = null },
         onOpenClock = viewModel::openClockApp,
         onSubmitQuery = submitQuery,
-        onOpenChat = { onOpenChat(null) },
+        onOpenChat = { openChat(null) },
         onVoice = if (voiceAvailable) ({ voiceLauncher.launch(voiceIntent) }) else null,
         onOpenDrawer = ::openDrawer,
         onOpenPlanner = onOpenPlanner,
@@ -461,7 +511,7 @@ fun LauncherHomeScreen(
                 ClipAction.CALL -> viewModel.dial(insight.text.trim())
                 ClipAction.EMAIL -> viewModel.email(insight.text.trim())
                 ClipAction.COPY_CODE -> viewModel.copyToClipboard("Code", insight.text.trim())
-                else -> ClipboardAnalyzer.promptFor(action, insight.text)?.let { onOpenChat(it) }
+                else -> ClipboardAnalyzer.promptFor(action, insight.text)?.let { openChat(it) }
             }
         },
         onClipDismiss = viewModel::dismissClip,
@@ -472,7 +522,8 @@ fun LauncherHomeScreen(
             HomeGridMetrics.cellHeightDp = cellHeight
         },
         onPageChanged = viewModel::onPageChanged,
-        onSwipePastLastPage = { onOpenChat(null) },
+        // With panels, the pager's own overscroll pulls the assistant in (see pagerNestedScroll).
+        onSwipePastLastPage = { if (!panelsEnabled) openChat(null) },
         dragEnabled = BuildConfig.HOME_DRAG_AND_DROP,
         onDropItem = viewModel::drop,
         onAddPage = viewModel::addPage,
@@ -499,15 +550,15 @@ fun LauncherHomeScreen(
     /** A launcher feature from the "AI Launcher" tools folder. */
     fun openTool(tool: LauncherTool) {
         when (tool) {
-            LauncherTool.ASSISTANT -> onOpenChat(null)
-            LauncherTool.MY_DAY -> onOpenChat("Summarize my day")
+            LauncherTool.ASSISTANT -> openChat(null)
+            LauncherTool.MY_DAY -> openChat("Summarize my day")
             LauncherTool.PLANNER -> onOpenPlanner()
             LauncherTool.TODOS -> onOpenTodos()
-            LauncherTool.CATCH_UP -> onOpenChat("What did I miss?")
+            LauncherTool.CATCH_UP -> openChat("What did I miss?")
             LauncherTool.PRIVATE_SPACE -> openPrivateSpace()
             LauncherTool.WIDGETS -> showWidgetPicker = true
             LauncherTool.SETTINGS -> onOpenSettings()
-            LauncherTool.SYSTEM_INFO -> onOpenSystemInfo?.invoke()
+            LauncherTool.SYSTEM_INFO -> openSystemInfo?.invoke()
         }
     }
 
@@ -528,6 +579,7 @@ fun LauncherHomeScreen(
         Modifier
             .fillMaxSize()
             .onSizeChanged { size ->
+                panels.updateWidth(size.width.toFloat())
                 val height = size.height.toFloat()
                 if (height > 0f && height != drawerHeight) {
                     drawerHeight = height
@@ -552,6 +604,12 @@ fun LauncherHomeScreen(
                     scaleX = scale
                     scaleY = scale
                     alpha = (1f - 0.6f * drawerProgress) * (1f - 0.85f * lock)
+                    // A panel sliding in pushes home a little to the side (parallax) and fades it,
+                    // so a see-through chat (wallpaper background) shows only the wallpaper.
+                    if (panelsEnabled) {
+                        translationX = panels.offset.coerceAtLeast(-panels.width) * PANEL_PARALLAX
+                        alpha *= 1f - panels.chatProgress
+                    }
                 }
                 .pointerInput(Unit) {
                     detectTapGestures(
@@ -566,7 +624,7 @@ fun LauncherHomeScreen(
                 .draggable(
                     state = homeDrag,
                     orientation = Orientation.Vertical,
-                    enabled = editingWidgetId == null,
+                    enabled = editingWidgetId == null && !(panelsEnabled && panels.showingPanel),
                     onDragStarted = {
                         homePull[0] = 0f
                         // Grabbing the drawer mid-animation takes over from the spring.
@@ -589,6 +647,18 @@ fun LauncherHomeScreen(
                 editingWidgetId = editingWidgetId,
                 callbacks = callbacks,
                 entrance = entrance,
+                pagerNestedScroll = if (panelsEnabled) panels.pagerConnection else null,
+                // Minimal mode has no pager: a sideways drag anywhere pulls the assistant in.
+                panelDrag = if (panelsEnabled && style.minimal) {
+                    Modifier.draggable(
+                        state = panelDrag,
+                        orientation = Orientation.Horizontal,
+                        onDragStarted = { panels.grab() },
+                        onDragStopped = { velocity -> panels.settle(velocity) },
+                    )
+                } else {
+                    Modifier
+                },
             )
         }
 
@@ -636,6 +706,54 @@ fun LauncherHomeScreen(
                 handleModifier = Modifier.clickable(onClickLabel = "Close app drawer") { closeDrawer() },
                 listModifier = Modifier.nestedScroll(drawerScroll),
             )
+        }
+
+        // -------------------------------------------------------------- panel layer
+        if (panelsEnabled && panels.showingPanel) {
+            // A shadow that deepens while the panel moves and is gone once it has settled.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val p = panels.chatProgress
+                        alpha = 4f * p * (1f - p)
+                    }
+                    .background(Color.Black.copy(alpha = 0.35f)),
+            )
+            val panelGesture = Modifier.draggable(
+                state = panelDrag,
+                orientation = Orientation.Horizontal,
+                onDragStarted = { panels.grab() },
+                onDragStopped = { velocity -> panels.settle(velocity) },
+            )
+            CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides null) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = panels.width + panels.offset }
+                        .then(panelGesture),
+                ) {
+                    AiChatScreen(
+                        onBack = { scope.launch { panels.animateTo(HomePanel.HOME) } },
+                        onOpenModelSetup = onOpenModelSetup,
+                        onOpenPlanner = onOpenPlannerTab,
+                        onOpenSystemInfo = openSystemInfo,
+                        pendingPrompt = pendingPrompt,
+                        onPromptConsumed = { pendingPrompt = null },
+                        asPanel = true,
+                    )
+                }
+                if (panels.systemVisible) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationX = 2 * panels.width + panels.offset }
+                            .then(panelGesture),
+                    ) {
+                        SystemInfoScreen(onBack = { scope.launch { panels.animateTo(HomePanel.CHAT) } }, asPanel = true)
+                    }
+                }
+            }
         }
 
         // Pre-lock dim.
@@ -779,7 +897,7 @@ fun LauncherHomeScreen(
             onNewFolder = { folderEdit = FolderEdit(placeOnHome = true) },
             onPlanner = onOpenPlanner,
             onSettings = onOpenSettings,
-            onAssistant = { onOpenChat(null) },
+            onAssistant = { openChat(null) },
             onDismiss = { showHomeMenu = false },
         )
     }
@@ -883,3 +1001,6 @@ private fun WidgetListDialog(lists: List<String>, selected: String?, onPick: (St
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** How far home moves for each pixel a panel slides in. */
+private const val PANEL_PARALLAX = 0.25f

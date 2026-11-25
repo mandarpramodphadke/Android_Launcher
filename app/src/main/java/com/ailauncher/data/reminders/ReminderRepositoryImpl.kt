@@ -43,8 +43,8 @@ class ReminderRepositoryImpl @Inject constructor(
         dao.observeScheduled().map { rows -> rows.map { it.toDomain() } }
 
     override suspend fun schedule(title: String, triggerAtMillis: Long): ReminderScheduleResult = withContext(Dispatchers.IO) {
-        val useCalendar = settingsRepository.launcherSettings.first().saveRemindersToCalendar
-        val calendarId = if (useCalendar) calendar.primaryWritableCalendarId() else null
+        val settings = settingsRepository.launcherSettings.first()
+        val calendarId = if (settings.saveRemindersToCalendar) calendar.primaryWritableCalendarId(settings.reminderCalendarId) else null
         val eventId = calendarId?.let { calendar.insertReminderEvent(it, title, triggerAtMillis) }
 
         val entity = ReminderEntity(

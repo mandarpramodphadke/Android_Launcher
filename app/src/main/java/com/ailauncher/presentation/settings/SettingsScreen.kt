@@ -95,6 +95,8 @@ fun SettingsScreen(
     onOpenModelSetup: () -> Unit,
     onOpenPrivacyPolicy: () -> Unit = {},
     onOpenLicenses: () -> Unit = {},
+    /** Calendars the assistant reads (full version until it reaches Google Play). */
+    onOpenCalendars: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -390,6 +392,15 @@ fun SettingsScreen(
             item {
                 SwitchSetting("Save reminders to calendar", "Otherwise reminders are local notifications", state.settings.saveRemindersToCalendar) { on ->
                     viewModel.updateSettings { it.copy(saveRemindersToCalendar = on) }
+                }
+            }
+            if (onOpenCalendars != null) {
+                item {
+                    ActionSetting(
+                        "Calendars",
+                        "Outlook, Samsung and other calendars on your phone, calendar links and .ics files",
+                        onClick = onOpenCalendars,
+                    )
                 }
             }
             item { ActionSetting("Clear chat history", null, onClick = viewModel::clearChatHistory) }

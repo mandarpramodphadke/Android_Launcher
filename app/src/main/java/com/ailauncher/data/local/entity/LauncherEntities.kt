@@ -118,3 +118,31 @@ data class NotificationDigestEntity(
     val extractionsJson: String?,
     val pillDismissed: Boolean = false,
 )
+
+/**
+ * v4: a calendar the user subscribed to by link (an .ics address) or imported from a file
+ * ([url] null; the file's text is kept in the app's files so it can be re-read).
+ */
+@Entity(tableName = "calendar_feeds")
+data class CalendarFeedEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val url: String?,
+    val colorArgb: Int,
+    val lastSyncedAt: Long?,
+    val lastError: String?,
+    val eventCount: Int,
+    val createdAt: Long,
+)
+
+/** v4: one occurrence of a subscribed calendar's event (recurring events stored expanded). */
+@Entity(tableName = "feed_events", indices = [Index("feedId"), Index("startMillis")])
+data class FeedEventEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val feedId: Long,
+    val title: String,
+    val location: String?,
+    val startMillis: Long,
+    val endMillis: Long,
+    val allDay: Boolean,
+)

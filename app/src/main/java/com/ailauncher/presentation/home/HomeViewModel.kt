@@ -25,7 +25,9 @@ import com.ailauncher.domain.home.DropAction
 import com.ailauncher.domain.home.FolderNaming
 import com.ailauncher.domain.home.GridSpec
 import com.ailauncher.domain.home.HomeGridPlanner
+import com.ailauncher.BuildConfig
 import com.ailauncher.domain.model.AppInfo
+import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
 import com.ailauncher.domain.model.FolderAccent
@@ -102,6 +104,10 @@ data class HomeUiState(
     }
 
     fun badgeFor(app: AppInfo): Int = badges[app.packageName] ?: 0
+
+    /** The assistant's name as the user set it (full version), for the command bar. */
+    val assistantName: String
+        get() = if (BuildConfig.CHAT_CUSTOMIZATION) settings.assistant.displayName else AssistantProfile.DEFAULT_NAME
 }
 
 /** The home "glance" card: open to-dos and the next planner block. */

@@ -27,6 +27,16 @@ Google Play doesn't allow, such as all-files access, stay in the full version.
 | 1.4 | Drag and drop on the home screen | `HOME_DRAG_AND_DROP` | Full only: waiting for a phone test |
 | 1.4 | Smart folders | `SMART_FOLDERS` | Full only: waiting for a phone test |
 | 1.5 | System info page (after the AI chat) | `SYSTEM_INFO` | Full only: waiting for a phone test |
+| 1.6 | Chat and System info as sliding panels | `CHAT_PANELS` | Full only: waiting for a phone test |
+| 1.6 | Compact think button, chat background, assistant behaviour | `CHAT_CUSTOMIZATION` | Full only: waiting for a phone test |
+| 1.6 | Choose device calendars, calendar links, .ics import | `MORE_CALENDARS` | Full only: waiting for a phone test |
+
+Policy check for 1.6: no new permission. The chat background uses Android's photo picker (no
+storage permission). Assistant instructions stay on the phone and the built-in safety rule always
+stays in the prompt. Calendar links make the app download a calendar from an address the user
+entered; that is a user-initiated download, not collection, so the Data safety answers don't
+change, and the privacy policy already describes it. Choosing device calendars uses the existing
+calendar permission.
 
 Policy check for System info (1.5): it reads device details through public APIs that need no
 permission, reads no device identifiers (serial number, IMEI, Android ID, MAC address), and keeps

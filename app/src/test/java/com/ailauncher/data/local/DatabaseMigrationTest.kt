@@ -5,7 +5,9 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.ailauncher.data.local.entity.CalendarFeedEntity
 import com.ailauncher.data.local.entity.CustomFolderEntity
+import com.ailauncher.data.local.entity.FeedEventEntity
 import com.ailauncher.data.local.entity.HomeItemEntity
 import com.ailauncher.data.local.entity.NotificationDigestEntity
 import com.ailauncher.data.local.entity.PlannerBlockEntity
@@ -105,6 +107,47 @@ class DatabaseMigrationTest {
             val app = db.homeItemDao().all().single { it.type == "APP" }
             db.homeItemDao().replaceWithItem(listOf(app.id), HomeItemEntity(type = HomeItemEntity.TYPE_FOLDER, pageIndex = 0, gridX = 1, gridY = 2, folderId = smartId, createdAt = 3))
             assertThat(db.homeItemDao().onPage(0).map { it.type }).containsExactly("FOLDER", "WIDGET")
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun migratesVersion3ToVersion4AddingCalendarFeeds() = runTest {
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createTables(db, 3)
+            db.execSQL(
+                "INSERT INTO custom_folders (id, name, description, accentColorKey, sortOrder, packageNames, dockPosition, createdAt, updatedAt, smartRule) " +
+                    "VALUES (1, 'New apps', NULL, 'sky', 0, '[]', NULL, 1, 1, 'installed:14')",
+            )
+            db.execSQL(
+                "INSERT INTO home_items (type, pageIndex, gridX, gridY, spanX, spanY, componentKey, folderId, appWidgetId, widgetProvider, createdAt, launcherWidget) " +
+                    "VALUES ('LAUNCHER_WIDGET', 0, 0, 3, 4, 2, NULL, NULL, NULL, NULL, 1, 'todo_list')",
+            )
+            db.version = 3
+        }
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
+            .addMigrations(*AppDatabase.MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            assertThat(db.folderDao().get(1)?.smartRule).isEqualTo("installed:14")
+            assertThat(db.homeItemDao().all().single().launcherWidget).isEqualTo("todo_list")
+
+            val feeds = db.calendarFeedDao()
+            val id = feeds.insert(CalendarFeedEntity(name = "School", url = "https://example.com/school.ics", colorArgb = 0, lastSyncedAt = null, lastError = null, eventCount = 0, createdAt = 1))
+            val feed = feeds.get(id)!!
+            feeds.replaceEvents(feed.copy(eventCount = 2), listOf(
+                FeedEventEntity(feedId = id, title = "Maths", location = null, startMillis = 1_000, endMillis = 2_000, allDay = false),
+                FeedEventEntity(feedId = id, title = "Sports day", location = "Field", startMillis = 5_000, endMillis = 9_000, allDay = true),
+            ))
+            assertThat(feeds.eventsBetween(1_500, 6_000).map { it.title }).containsExactly("Maths", "Sports day").inOrder()
+            assertThat(feeds.eventsBetween(2_000, 4_000)).isEmpty()
+            assertThat(feeds.get(id)?.eventCount).isEqualTo(2)
+            feeds.delete(id)
+            assertThat(feeds.eventsBetween(0, Long.MAX_VALUE)).isEmpty()
+            assertThat(feeds.all()).isEmpty()
         } finally {
             db.close()
         }

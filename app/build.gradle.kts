@@ -69,8 +69,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 6
-        versionName = "1.5.0"
+        versionCode = 7
+        versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -115,6 +115,9 @@ android {
     // 1.4: TODO_WIDGETS (launcher-drawn to-do widgets), HOME_DRAG_AND_DROP (drag apps to move them
     // or make folders), SMART_FOLDERS (folders that fill themselves).
     // 1.5: SYSTEM_INFO (the System info page after the AI chat).
+    // 1.6: CHAT_PANELS (chat and System info slide in as panels that follow the finger),
+    // CHAT_CUSTOMIZATION (compact think button, chat background, assistant behaviour),
+    // MORE_CALENDARS (choose device calendars, subscribe to calendar links, import .ics files).
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -126,6 +129,9 @@ android {
             buildConfigField("boolean", "HOME_DRAG_AND_DROP", "true")
             buildConfigField("boolean", "SMART_FOLDERS", "true")
             buildConfigField("boolean", "SYSTEM_INFO", "true")
+            buildConfigField("boolean", "CHAT_PANELS", "true")
+            buildConfigField("boolean", "CHAT_CUSTOMIZATION", "true")
+            buildConfigField("boolean", "MORE_CALENDARS", "true")
         }
         create("play") {
             dimension = "distribution"
@@ -138,6 +144,9 @@ android {
             buildConfigField("boolean", "HOME_DRAG_AND_DROP", "false")
             buildConfigField("boolean", "SMART_FOLDERS", "false")
             buildConfigField("boolean", "SYSTEM_INFO", "false")
+            buildConfigField("boolean", "CHAT_PANELS", "false")
+            buildConfigField("boolean", "CHAT_CUSTOMIZATION", "false")
+            buildConfigField("boolean", "MORE_CALENDARS", "false")
         }
     }
 

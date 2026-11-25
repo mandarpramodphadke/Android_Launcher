@@ -59,6 +59,16 @@ import com.ailauncher.domain.model.DrawerLayout
 import com.ailauncher.domain.model.DrawerTab
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.FolderAccent
+import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.AssistantTone
+import com.ailauncher.domain.model.CalendarFeed
+import com.ailauncher.domain.model.ChatBackground
+import com.ailauncher.domain.model.DeviceCalendar
+import com.ailauncher.domain.model.ResponseLength
+import com.ailauncher.presentation.calendars.CalendarsContent
+import com.ailauncher.presentation.calendars.CalendarsUiState
+import com.ailauncher.presentation.chat.ChatBackdrop
+import com.ailauncher.presentation.chat.ChatCustomizeContent
 import com.ailauncher.domain.model.FolderRule
 import com.ailauncher.domain.model.LauncherWidgetConfig
 import com.ailauncher.domain.model.LauncherWidgetKind
@@ -195,6 +205,11 @@ class ThemeScreenshotTest {
             add(Shot("system-info-colourful-light-memory") { SystemInfo(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), firstItem = 4) })
             add(Shot("system-info-amoled-device") { SystemInfo(settings(AppTheme.AMOLED), firstItem = 7) })
 
+            // 1.6: compact chat input, chat over the wallpaper, customization and calendars.
+            add(Shot("chat-neon-wallpaper-background") { Chat(settings(AppTheme.NEON), DayPlanConversation, wallpaper = true) })
+            add(Shot("chat-customize-material-you-dark") { Customize(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK)) })
+            add(Shot("calendars-classic-light") { Calendars(settings(AppTheme.CLASSIC, ThemeMode.LIGHT)) })
+
             add(Shot("settings-theme-picker-light") { Picker(settings(AppTheme.COLORFUL, ThemeMode.LIGHT)) })
             add(Shot("settings-theme-picker-dark") { Picker(settings(AppTheme.NEON, ThemeMode.DARK)) })
         }
@@ -315,9 +330,12 @@ class ThemeScreenshotTest {
 
     /** The assistant screen as the app draws it (top bar, conversation, input with quick actions). */
     @Composable
-    private fun Chat(settings: LauncherSettings, conversation: List<ChatMessageUi>) {
+    private fun Chat(settings: LauncherSettings, conversation: List<ChatMessageUi>, wallpaper: Boolean = false) {
         AiLauncherTheme(settings) {
+            Box(Modifier.fillMaxSize().then(if (wallpaper) Modifier.background(DarkWallpaper) else Modifier)) {
+            if (wallpaper) ChatBackdrop(ChatBackground.WALLPAPER, null, null, 0.55f)
             Scaffold(
+                containerColor = if (wallpaper) Color.Transparent else MaterialTheme.colorScheme.background,
                 topBar = {
                     TopAppBar(
                         title = {
@@ -338,6 +356,8 @@ class ThemeScreenshotTest {
                         onSend = {},
                         onStop = {},
                         onQuickAction = {},
+                        compactThinking = true,
+                        translucent = wallpaper,
                     )
                 },
             ) { padding ->
@@ -355,6 +375,60 @@ class ThemeScreenshotTest {
                     onOpenModelSetup = {},
                 )
             }
+            }
+        }
+    }
+
+    @Composable
+    private fun Customize(settings: LauncherSettings) {
+        AiLauncherTheme(settings) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxSize()) {
+                Box(Modifier.statusBarsPadding().padding(top = 16.dp)) {
+                    ChatCustomizeContent(
+                        state = ChatUiState(
+                            assistant = AssistantProfile("Nova", ResponseLength.SHORT, AssistantTone.FRIENDLY, "Reply in Hindi when I write in Hindi. Use metric units."),
+                            background = ChatBackground.WALLPAPER,
+                            backgroundDim = 0.55f,
+                        ),
+                        onBackground = {},
+                        onPickPhoto = {},
+                        onDim = {},
+                        onSaveAssistant = { _, _ -> },
+                        promptFor = { "" },
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun Calendars(settings: LauncherSettings) {
+        AiLauncherTheme(settings) {
+            CalendarsContent(
+                state = CalendarsUiState(
+                    canRead = true,
+                    deviceCalendars = listOf(
+                        DeviceCalendar(1, "Personal", "you@gmail.com", "com.google", 0xFF4285F4.toInt(), writable = true, primary = true),
+                        DeviceCalendar(2, "Holidays in India", "you@gmail.com", "com.google", 0xFF0B8043.toInt(), writable = false, primary = false),
+                        DeviceCalendar(3, "Calendar", "you@company.com", "com.microsoft.office.outlook.USER_ACCOUNT", 0xFF0078D4.toInt(), writable = true, primary = false),
+                        DeviceCalendar(4, "My calendar", "On this phone", "LOCAL", 0xFFE67C73.toInt(), writable = true, primary = false),
+                    ),
+                    hiddenIds = setOf(2L),
+                    reminderCalendarId = 3L,
+                    feeds = listOf(
+                        CalendarFeed(1, "School timetable", "https://example.com/school.ics", 0xFF009688.toInt(), System.currentTimeMillis() - 2 * 3_600_000L, null, 128),
+                        CalendarFeed(2, "Cricket fixtures", null, 0xFFFF9800.toInt(), System.currentTimeMillis(), null, 24),
+                    ),
+                ),
+                onBack = {},
+                onGrant = {},
+                onShown = { _, _ -> },
+                onPickReminderCalendar = {},
+                onAddLink = {},
+                onImport = {},
+                onRefresh = {},
+                onRemove = {},
+            )
         }
     }
 

@@ -39,6 +39,38 @@ enum class IconStyle {
     GRAYSCALE,
 }
 
+/** What is drawn behind the assistant's messages. */
+@Serializable
+enum class ChatBackground { DEFAULT, WALLPAPER, PHOTO }
+
+@Serializable
+enum class ResponseLength { SHORT, BALANCED, DETAILED }
+
+@Serializable
+enum class AssistantTone { FRIENDLY, PROFESSIONAL, PLAYFUL }
+
+/**
+ * How the assistant behaves: its name, how long its answers are, its tone and the user's own
+ * instructions. The default profile produces exactly the built-in system prompt.
+ */
+@Serializable
+data class AssistantProfile(
+    val name: String = DEFAULT_NAME,
+    val length: ResponseLength = ResponseLength.BALANCED,
+    val tone: AssistantTone = AssistantTone.FRIENDLY,
+    /** The user's own instructions, added to the end of the system prompt. */
+    val instructions: String = "",
+) {
+    val displayName: String get() = name.trim().take(MAX_NAME).ifEmpty { DEFAULT_NAME }
+    val isDefault: Boolean get() = displayName == DEFAULT_NAME && length == ResponseLength.BALANCED && tone == AssistantTone.FRIENDLY && instructions.isBlank()
+
+    companion object {
+        const val DEFAULT_NAME = "Aura"
+        const val MAX_NAME = 24
+        const val MAX_INSTRUCTIONS = 600
+    }
+}
+
 /** Launcher-wide user preferences (persisted in DataStore, included in backups). */
 @Serializable
 data class LauncherSettings(
@@ -74,7 +106,19 @@ data class LauncherSettings(
     val autoConfirmAppLaunch: Boolean = false,
     val saveRemindersToCalendar: Boolean = true,
     val hapticFeedback: Boolean = true,
-)
+    val chatBackground: ChatBackground = ChatBackground.DEFAULT,
+    /** How strongly the chat background is veiled (0..1) so messages stay readable. */
+    val chatBackgroundDim: Float = DEFAULT_CHAT_DIM,
+    val assistant: AssistantProfile = AssistantProfile(),
+    /** Device calendars (CalendarContract ids) the assistant and planner leave out. */
+    val hiddenCalendarIds: Set<Long> = emptySet(),
+    /** Calendar new reminders go to; null picks the primary synced calendar. */
+    val reminderCalendarId: Long? = null,
+) {
+    companion object {
+        const val DEFAULT_CHAT_DIM = 0.55f
+    }
+}
 
 /** On-device model runtime configuration (persisted in DataStore, included in backups). */
 @Serializable

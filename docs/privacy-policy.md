@@ -25,7 +25,11 @@ use the feature that needs them, and you can withdraw them at any time in Androi
 - **App usage** (optional "Usage access"). To find apps you haven't used for a while and to suggest
   apps you are likely to open.
 - **Calendar** (optional). To include today's events in your agenda and day planner, and to add
-  reminders you ask for.
+  reminders you ask for. This covers every calendar synced to your phone (Google, Outlook,
+  Exchange, Samsung and others); you can choose which ones the app reads.
+- **Photos you pick** (optional). If you choose a photo as the chat background, the app copies
+  that one photo, picked with Android's photo picker, into its private storage. It needs no
+  storage permission and sees no other photos.
 - **Contacts** (optional). To find the person when you ask the assistant to call or message
   someone. Nothing is called or sent until you confirm, and the call or message is made by your
   phone or messaging app.
@@ -52,8 +56,9 @@ use the feature that needs them, and you can withdraw them at any time in Androi
 
 ## Data stored on your phone
 
-Assistant chats, to-dos, planner blocks, folders, your home-screen layout, settings, app categories
-and the notification digest are kept in the app's private storage, protected by Android. You can
+Assistant chats, to-dos, planner blocks, folders, your home-screen layout, settings (including the
+assistant's name and the instructions you give it), app categories, subscribed calendars, the chat
+background photo and the notification digest are kept in the app's private storage, protected by Android. You can
 clear the chat history in Settings, and uninstalling the app deletes all of it. If you use
 Android's own backup, it may save your launcher settings to your Google account; chats, to-dos,
 notifications and AI models are excluded. A phone-to-phone transfer that you start copies
@@ -71,6 +76,12 @@ everything.
   on the version, the report is sent over HTTPS to a form we use for this purpose, or your email app
   opens with the report filled in for you to send. We use reports only to make the assistant safer,
   keep them only as long as needed to review them, and delete one on request.
+- **Calendar links you add (only in the version installed outside Google Play, for now).** If you
+  subscribe to a calendar by link (an .ics or webcal address, for example a published Outlook.com
+  calendar), the app downloads that calendar from the address you entered and refreshes it every
+  few hours. Like any download, the calendar's server receives your IP address and the request for
+  that address; nothing else is sent. The events are stored only on your phone, and removing the
+  calendar deletes them.
 - **Things you ask another app to do.** Opening a link, sharing or opening a file, calling or
   messaging someone, or setting an alarm hands that request to the app you choose (browser, phone,
   messaging app, clock). Those apps' own policies apply.

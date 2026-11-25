@@ -2,6 +2,8 @@ package com.ailauncher.presentation.navigation
 
 import com.ailauncher.BuildConfig
 import com.ailauncher.presentation.system.SystemInfoScreen
+import com.ailauncher.presentation.calendars.CalendarsScreen
+import com.ailauncher.presentation.home.ChatRequest
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -21,6 +23,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.IntOffset
@@ -62,6 +65,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object LicensesRoute
 
+/** Device calendars, calendar links and imported .ics files. */
+@Serializable data object CalendarsRoute
+
 /** Battery, memory, storage, CPU, GPU and device details: the page after the AI chat. */
 @Serializable data object SystemInfoRoute
 
@@ -86,6 +92,17 @@ fun LauncherNavHost(
 
     // A folder the assistant opened ("open my Work folder"): shown by the home screen.
     var folderRequest by rememberSaveable { mutableStateOf<Long?>(null) }
+    // Panels build: the assistant is a panel of the home screen, opened through this request.
+    var chatRequest by remember { mutableStateOf<ChatRequest?>(null) }
+
+    fun openAssistant(prompt: String?) {
+        if (BuildConfig.CHAT_PANELS) {
+            chatRequest = ChatRequest(prompt)
+            navController.popBackStack<HomeRoute>(inclusive = false)
+        } else {
+            navController.navigate(ChatRoute(prompt)) { launchSingleTop = true }
+        }
+    }
 
     // Pressing Home while chat, settings or the planner is open returns to the home screen.
     LaunchedEffect(navController) {
@@ -108,7 +125,9 @@ fun LauncherNavHost(
     LaunchedEffect(navController) {
         shares.collect {
             onShareHandled()
-            if (navController.currentBackStackEntry?.destination?.route?.contains("ChatRoute") != true) {
+            if (BuildConfig.CHAT_PANELS) {
+                openAssistant(null)
+            } else if (navController.currentBackStackEntry?.destination?.route?.contains("ChatRoute") != true) {
                 navController.navigate(ChatRoute()) { launchSingleTop = true }
             }
         }
@@ -166,6 +185,10 @@ fun LauncherNavHost(
                             onOpenPlanner = { navController.navigate(PlannerRoute()) { launchSingleTop = true } },
                             onOpenTodos = { navController.navigate(PlannerRoute(PlannerTab.TODOS.name)) { launchSingleTop = true } },
                             onOpenSystemInfo = openSystemInfo,
+                            chatRequest = chatRequest,
+                            onChatRequestHandled = { chatRequest = null },
+                            onOpenModelSetup = { navController.navigate(ModelSetupRoute()) },
+                            onOpenPlannerTab = { tab -> navController.navigate(PlannerRoute(tab.name)) { launchSingleTop = true } },
                         )
                     }
                 }
@@ -195,7 +218,16 @@ fun LauncherNavHost(
                         onOpenModelSetup = { navController.navigate(ModelSetupRoute()) },
                         onOpenPrivacyPolicy = { navController.navigate(PrivacyPolicyRoute) { launchSingleTop = true } },
                         onOpenLicenses = { navController.navigate(LicensesRoute) { launchSingleTop = true } },
+                        onOpenCalendars = if (BuildConfig.MORE_CALENDARS) {
+                            { navController.navigate(CalendarsRoute) { launchSingleTop = true } }
+                        } else {
+                            null
+                        },
                     )
+                }
+
+                composable<CalendarsRoute>(enterTransition = slideFromEnd, popExitTransition = slideToEnd) {
+                    CalendarsScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable<SystemInfoRoute>(enterTransition = slideFromEnd, popExitTransition = slideToEnd) {
@@ -218,7 +250,7 @@ fun LauncherNavHost(
                     PlannerScreen(
                         initialTab = PlannerTab.entries.firstOrNull { it.name == route.tab } ?: PlannerTab.PLAN,
                         onBack = { navController.popBackStack() },
-                        onAskAssistant = { prompt -> navController.navigate(ChatRoute(prompt)) { launchSingleTop = true } },
+                        onAskAssistant = { prompt -> openAssistant(prompt) },
                     )
                 }
             }

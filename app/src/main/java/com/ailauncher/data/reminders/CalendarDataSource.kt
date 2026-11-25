@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.ailauncher.domain.model.DeviceCalendar
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.TimeZone
 import javax.inject.Inject
@@ -33,9 +34,49 @@ class CalendarDataSource @Inject constructor(
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    /** The user's primary writable, visible calendar, or null when none is linked. */
-    fun primaryWritableCalendarId(): Long? {
+    /** Every calendar on the phone, of every account (Google, Exchange/Outlook, Samsung, local…). */
+    fun calendars(): List<DeviceCalendar> {
+        if (!canRead()) return emptyList()
+        val projection = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Calendars.ACCOUNT_NAME,
+            CalendarContract.Calendars.ACCOUNT_TYPE,
+            CalendarContract.Calendars.CALENDAR_COLOR,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
+            CalendarContract.Calendars.IS_PRIMARY,
+        )
+        return try {
+            context.contentResolver.query(CalendarContract.Calendars.CONTENT_URI, projection, null, null, null)?.use { c ->
+                buildList {
+                    while (c.moveToNext()) {
+                        val type = c.getString(3).orEmpty()
+                        add(
+                            DeviceCalendar(
+                                id = c.getLong(0),
+                                name = c.getString(1)?.takeIf { it.isNotBlank() } ?: "Calendar",
+                                account = if (type == CalendarContract.ACCOUNT_TYPE_LOCAL) "On this phone" else c.getString(2).orEmpty(),
+                                accountType = type,
+                                colorArgb = c.getInt(4),
+                                writable = c.getInt(5) >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
+                                primary = c.getInt(6) == 1,
+                            ),
+                        )
+                    }
+                }
+            }.orEmpty().sortedWith(compareBy({ it.account.lowercase() }, { !it.primary }, { it.name.lowercase() }))
+        } catch (e: SecurityException) {
+            emptyList()
+        }
+    }
+
+    /**
+     * The calendar new reminders go to: [preferred] when it still exists and can be written,
+     * otherwise the primary writable synced calendar.
+     */
+    fun primaryWritableCalendarId(preferred: Long? = null): Long? {
         if (!canWrite()) return null
+        if (preferred != null && calendars().any { it.id == preferred && it.writable }) return preferred
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
             CalendarContract.Calendars.IS_PRIMARY,
@@ -93,8 +134,11 @@ class CalendarDataSource @Inject constructor(
         }
     }
 
-    /** Event instances (recurring events expanded) overlapping [startMillis, endMillis). */
-    fun eventsBetween(startMillis: Long, endMillis: Long): List<CalendarEvent> {
+    /**
+     * Event instances (recurring events expanded) overlapping [startMillis, endMillis), from every
+     * calendar except [hiddenCalendarIds].
+     */
+    fun eventsBetween(startMillis: Long, endMillis: Long, hiddenCalendarIds: Set<Long> = emptySet()): List<CalendarEvent> {
         if (!canRead()) return emptyList()
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, startMillis)
@@ -106,11 +150,13 @@ class CalendarDataSource @Inject constructor(
             CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY,
             CalendarContract.Instances.EVENT_LOCATION,
+            CalendarContract.Instances.CALENDAR_ID,
         )
         return try {
             context.contentResolver.query(uri, projection, null, null, "${CalendarContract.Instances.BEGIN} ASC")?.use { c ->
                 buildList {
                     while (c.moveToNext() && size < MAX_EVENTS) {
+                        if (c.getLong(5) in hiddenCalendarIds) continue
                         add(
                             CalendarEvent(
                                 title = c.getString(0)?.takeIf { it.isNotBlank() } ?: "(No title)",

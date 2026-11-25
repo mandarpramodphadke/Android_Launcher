@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.6: sliding panels, chat customization, more calendars](#whats-new-in-16-sliding-panels-chat-customization-more-calendars)
 1. [What's new in 1.5: System info](#whats-new-in-15-system-info)
 1. [What's new in 1.4: to-do widgets and smart folders](#whats-new-in-14-to-do-widgets-and-smart-folders)
 1. [What's new in 1.3: Google Play version](#whats-new-in-13-google-play-version)
@@ -29,6 +30,36 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.6: sliding panels, chat customization, more calendars
+
+Full version first (flags `CHAT_PANELS`, `CHAT_CUSTOMIZATION`, `MORE_CALENDARS`).
+
+- **Sliding panels.** The assistant and System info are panels beside the home pages, like the
+  Discover feed on a Pixel. Past the last page, the assistant follows your finger as you drag and
+  settles with your swipe's speed; a short pull snaps back. Drag on to System info and back, one
+  panel at a time. Back and Home slide them away. Everything that opens the assistant (the command
+  bar, voice, clipboard actions, shares, the planner) now slides the panel in.
+- **Compact message bar.** Thinking mode is a small round button, so the message box gets almost
+  the whole row.
+- **Chat background.** The tune button in the chat's top bar: plain, your wallpaper, or a photo
+  (Android's photo picker, no storage permission), with a veil you set so messages stay readable.
+- **Assistant behaviour.** In the same sheet: the assistant's name, short / balanced / detailed
+  answers, a friendly / professional / playful tone, your own instructions (up to 600 characters,
+  added to the system prompt after its rules), and "Think before answering". *Show the full system
+  prompt* shows exactly what the model gets. The default settings keep the original prompt byte
+  for byte, so the prompt cache is unaffected.
+- **More calendars.** Settings ▸ Calendars lists every calendar on the phone (Google, Outlook,
+  Exchange, Samsung, local, CalDAV) with a switch for each and a choice of calendar for new
+  reminders. Outlook's calendars appear once *Sync calendars* is on in the Outlook app. Any
+  calendar with a link (.ics or webcal: Outlook.com published calendars, iCloud, Proton,
+  Fastmail, school timetables, sports fixtures) can be subscribed to and refreshes every six
+  hours, and .ics files can be imported. Recurring events, exceptions, moved occurrences, time
+  zones (including Outlook's Windows zone names) and all-day events are handled. Their events
+  appear in "Summarize my day", the planner and the Today widget. The database moves to version 4
+  (two new tables).
 
 ---
 
@@ -659,6 +690,20 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 ---
 
 ## Verification performed
+
+1.6.0 (full version):
+
+- `assembleFullRelease` builds a **23.9 MB APK**, version 1.6.0 (7), signed with the same key,
+  16 KB aligned, with the same permissions as 1.5.0. Zero Kotlin compiler warnings; lint is clean
+  on both versions except for `OldTargetApi`.
+- **165 JVM unit tests pass on both versions** (1 JNI host test skipped unless configured). New:
+  the panels driven by real touch input (the assistant follows the finger mid-drag, a short pull
+  snaps back, one panel at a time), the .ics parser (Outlook-style time zones, folding, escapes,
+  weekly / monthly / yearly rules, exceptions, moved occurrences, cancelled and all-day events),
+  importing a calendar file through the real repository and Room, the Room 3 → 4 migration, the
+  assistant's prompt (the default stays byte for byte; instructions can't break the chat
+  template), the new settings, and 3 screenshots (46 in all).
+- Not verified here: the gestures and calendar links on a physical phone.
 
 1.5.0 (full version):
 

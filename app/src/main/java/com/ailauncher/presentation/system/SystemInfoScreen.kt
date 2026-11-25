@@ -88,12 +88,17 @@ import kotlinx.coroutines.launch
  * software details, live while it is open. Swipe right (or Back) to return to the chat.
  */
 @Composable
-fun SystemInfoScreen(onBack: () -> Unit, viewModel: SystemInfoViewModel = hiltViewModel()) {
+fun SystemInfoScreen(
+    onBack: () -> Unit,
+    /** Shown as a panel beside the assistant: the panel handles swipes and status-bar icons. */
+    asPanel: Boolean = false,
+    viewModel: SystemInfoViewModel = hiltViewModel(),
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    ThemedSystemBarIcons()
+    if (!asPanel) ThemedSystemBarIcons()
     val swipeBack = rememberSwipeAction(onBack)
     SystemInfoContent(
         state = state,
@@ -105,7 +110,7 @@ fun SystemInfoScreen(onBack: () -> Unit, viewModel: SystemInfoViewModel = hiltVi
         },
         snackbar = snackbar,
         // Swipe right (the way you came) goes back to the assistant.
-        modifier = Modifier.horizontalSwipe(SwipeDirection.RIGHT, swipeBack),
+        modifier = if (asPanel) Modifier else Modifier.horizontalSwipe(SwipeDirection.RIGHT, swipeBack),
     )
 }
 

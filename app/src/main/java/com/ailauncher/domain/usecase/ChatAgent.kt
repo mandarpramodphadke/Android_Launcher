@@ -17,6 +17,7 @@ import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.ai.ToolDefinitions
 import com.ailauncher.domain.ai.ToolRouter
 import com.ailauncher.domain.ai.ToolRouting
+import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.ChatRole
 import com.ailauncher.domain.model.EngineState
@@ -95,6 +96,10 @@ class ChatAgent @Inject constructor(
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
+    /** The assistant's name, tone and instructions, read from settings before each reply. */
+    @Volatile
+    private var profile = AssistantProfile()
+
     fun send(
         text: String,
         mode: InferenceMode,
@@ -157,8 +162,9 @@ class ChatAgent @Inject constructor(
     fun warmUp() {
         if (_busy.value) return
         scope.launch {
+            profile = settingsRepository.launcherSettings.first().assistant
             val prefix = Qwen3PromptBuilder.build(
-                messages = listOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant)),
+                messages = listOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant(profile))),
                 tools = ToolDefinitions.forContext(llm.contextSize),
                 addGenerationPrompt = false,
             )
@@ -210,6 +216,7 @@ class ChatAgent @Inject constructor(
     /** Generates one assistant turn. Returns null if it failed or was cancelled. */
     private suspend fun generateReply(conversationId: String, mode: InferenceMode): ChatMessage? {
         val settings = settingsRepository.launcherSettings.first()
+        profile = settings.assistant
         val history = chatRepository.messages(conversationId, HISTORY_LIMIT)
         val placeholder = newMessage(conversationId, ChatRole.ASSISTANT, "", mode).copy(status = MessageStatus.STREAMING)
         val message = placeholder.copy(id = chatRepository.insert(placeholder))
@@ -344,8 +351,13 @@ class ChatAgent @Inject constructor(
      * @param folderContext appended to the latest user turn only (see [folderContext]), so earlier
      * turns render identically on every request and the KV prefix cache keeps matching.
      */
-    internal fun buildPrompt(history: List<ChatMessage>, mode: InferenceMode, folderContext: String? = null): String {
-        val messages = mutableListOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant))
+    internal fun buildPrompt(
+        history: List<ChatMessage>,
+        mode: InferenceMode,
+        folderContext: String? = null,
+        profile: AssistantProfile = this.profile,
+    ): String {
+        val messages = mutableListOf(PromptMessage(PromptMessage.Role.SYSTEM, SystemPrompts.assistant(profile)))
         val lastUser = history.indexOfLast { it.role == ChatRole.USER }
         for ((index, m) in history.withIndex()) {
             when (m.role) {

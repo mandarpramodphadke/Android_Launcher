@@ -1,5 +1,17 @@
 package com.ailauncher.presentation.chat
 
+import androidx.compose.foundation.background
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import com.ailauncher.domain.model.ChatBackground
+import java.io.File
+import com.ailauncher.BuildConfig
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -79,6 +91,8 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -155,6 +169,11 @@ fun AiChatScreen(
     onOpenPlanner: (PlannerTab) -> Unit = {},
     /** The System info page; when set, swiping left (onwards from home) or the chip icon opens it. */
     onOpenSystemInfo: (() -> Unit)? = null,
+    /** A message to send once (the panel was opened with a prompt); then [onPromptConsumed]. */
+    pendingPrompt: String? = null,
+    onPromptConsumed: () -> Unit = {},
+    /** Shown as a panel beside the home screen: the panel handles swipes and status-bar icons. */
+    asPanel: Boolean = false,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -166,9 +185,17 @@ fun AiChatScreen(
     var confirmClear by remember { mutableStateOf(false) }
     var showDigestDisclosure by remember { mutableStateOf(false) }
     var reportingId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showCustomize by remember { mutableStateOf(false) }
+    val customizable = BuildConfig.CHAT_CUSTOMIZATION
+    // The system photo picker: no storage permission; the photo is copied into the app.
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let(viewModel::importBackground)
+    }
+    val assistantName = if (customizable) state.assistant.displayName else SystemPrompts.ASSISTANT_NAME
+    val background = if (customizable) state.background else ChatBackground.DEFAULT
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    ThemedSystemBarIcons()
+    if (!asPanel) ThemedSystemBarIcons()
     LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
     // No in-app report channel in this build: finish the report in the email app.
     LaunchedEffect(viewModel) {
@@ -273,16 +300,32 @@ fun AiChatScreen(
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(0)
     }
 
+    // Opened with a prompt (the home command bar, a clipboard action, the planner): send it once.
+    LaunchedEffect(pendingPrompt) {
+        val prompt = pendingPrompt ?: return@LaunchedEffect
+        onPromptConsumed()
+        send(prompt)
+    }
+
     val swipeToSystemInfo = rememberSwipeAction { onOpenSystemInfo?.invoke() }
+    val veiled = background != ChatBackground.DEFAULT
+    Box(Modifier.fillMaxSize()) {
+    ChatBackdrop(background, state.backgroundFile, state.backgroundVersion, state.backgroundDim)
     Scaffold(
+        containerColor = if (veiled) Color.Transparent else MaterialTheme.colorScheme.background,
         // Home ▸ swipe left ▸ assistant ▸ swipe left ▸ System info.
-        modifier = if (onOpenSystemInfo != null) Modifier.horizontalSwipe(SwipeDirection.LEFT, swipeToSystemInfo) else Modifier,
+        modifier = if (onOpenSystemInfo != null && !asPanel) Modifier.horizontalSwipe(SwipeDirection.LEFT, swipeToSystemInfo) else Modifier,
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
+                colors = if (veiled) {
+                    TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
+                } else {
+                    TopAppBarDefaults.topAppBarColors()
+                },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(SystemPrompts.ASSISTANT_NAME)
+                        Text(assistantName, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         Spacer(Modifier.width(12.dp))
                         EngineStatusChip(state.engine, state.health, onClick = { showEngine = true })
                     }
@@ -290,6 +333,9 @@ fun AiChatScreen(
                 actions = {
                     IconButton(onClick = { confirmClear = true }, enabled = state.messages.isNotEmpty()) {
                         Icon(Icons.Rounded.DeleteSweep, "Clear chat")
+                    }
+                    if (customizable) {
+                        IconButton(onClick = { showCustomize = true }) { Icon(Icons.Rounded.Tune, "Customize chat and assistant") }
                     }
                     if (onOpenSystemInfo != null) {
                         IconButton(onClick = onOpenSystemInfo) { Icon(Icons.Rounded.Memory, "System info") }
@@ -307,6 +353,9 @@ fun AiChatScreen(
                 onSend = ::sendInput,
                 onStop = viewModel::stop,
                 onQuickAction = ::send,
+                compactThinking = BuildConfig.CHAT_CUSTOMIZATION,
+                placeholder = "Message $assistantName…",
+                translucent = veiled,
             )
         },
     ) { padding ->
@@ -324,6 +373,19 @@ fun AiChatScreen(
             onSharedAction = viewModel::useShared,
             onSharedDismiss = viewModel::dismissShared,
             onOpenModelSetup = onOpenModelSetup,
+        )
+    }
+    }
+
+    if (showCustomize) {
+        ChatCustomizeSheet(
+            state = state,
+            onBackground = viewModel::setBackground,
+            onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onDim = viewModel::setBackgroundDim,
+            onSaveAssistant = viewModel::saveAssistant,
+            promptFor = viewModel::systemPromptFor,
+            onDismiss = { showCustomize = false },
         )
     }
 
@@ -415,7 +477,7 @@ internal fun ChatMessageList(
             )
         }
         if (state.messages.isEmpty()) {
-            item(key = "empty") { EmptyChat() }
+            item(key = "empty") { EmptyChat(if (BuildConfig.CHAT_CUSTOMIZATION) state.assistant.displayName else SystemPrompts.ASSISTANT_NAME) }
         }
         if (state.engine == EngineState.NoModel) {
             item(key = "no-model") { ModelMissingCard(onOpenModelSetup) }
@@ -432,8 +494,17 @@ internal fun ChatInput(
     onSend: () -> Unit,
     onStop: () -> Unit,
     onQuickAction: (String) -> Unit,
+    /** A small "think" toggle instead of the Reasoning chip, so the message box gets the room. */
+    compactThinking: Boolean = false,
+    placeholder: String = "Message ${SystemPrompts.ASSISTANT_NAME}…",
+    /** Under a chat background picture, the bar becomes translucent. */
+    translucent: Boolean = false,
 ) {
-    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        tonalElevation = 3.dp,
+        color = if (translucent) MaterialTheme.colorScheme.surface.copy(alpha = 0.82f) else MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(Modifier.navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
             AnimatedVisibility(visible = !busy && state.text.isEmpty()) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -441,17 +512,22 @@ internal fun ChatInput(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(
-                    selected = reasoning,
-                    onClick = onToggleReasoning,
-                    label = { Text("Reasoning") },
-                    leadingIcon = { Icon(Icons.Rounded.Psychology, null, Modifier.size(18.dp)) },
-                )
-                Spacer(Modifier.width(8.dp))
+                if (compactThinking) {
+                    ThinkToggle(reasoning, onToggleReasoning)
+                    Spacer(Modifier.width(4.dp))
+                } else {
+                    FilterChip(
+                        selected = reasoning,
+                        onClick = onToggleReasoning,
+                        label = { Text("Reasoning") },
+                        leadingIcon = { Icon(Icons.Rounded.Psychology, null, Modifier.size(18.dp)) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 // The home screen's AI command bar morphs into this field (shared bounds).
                 LauncherTextField(
                     state = state,
-                    placeholder = "Message ${SystemPrompts.ASSISTANT_NAME}…",
+                    placeholder = placeholder,
                     lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                     shape = RoundedCornerShape(24.dp),
@@ -465,6 +541,39 @@ internal fun ChatInput(
                 }
             }
         }
+    }
+}
+
+/**
+ * What is behind the messages: nothing (the theme's background), the home wallpaper (the window
+ * shows it through) or the user's photo, veiled with the surface colour so text stays readable.
+ */
+@Composable
+internal fun ChatBackdrop(background: ChatBackground, photo: File?, version: Long?, dim: Float) {
+    if (background == ChatBackground.DEFAULT) return
+    if (background == ChatBackground.PHOTO && photo != null) {
+        val context = LocalContext.current
+        val request = remember(photo, version) {
+            ImageRequest.Builder(context).data(photo).memoryCacheKey("chat-background-$version").diskCachePolicy(CachePolicy.DISABLED).build()
+        }
+        AsyncImage(model = request, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    }
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface.copy(alpha = dim.coerceIn(0f, 0.9f))))
+}
+
+/** Think before answering (Reasoning mode) as a small round toggle: filled when on. */
+@Composable
+private fun ThinkToggle(on: Boolean, onToggle: () -> Unit) {
+    IconToggleButton(
+        checked = on,
+        onCheckedChange = { onToggle() },
+        colors = IconButtonDefaults.iconToggleButtonColors(
+            checkedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            checkedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ),
+        modifier = Modifier.size(40.dp),
+    ) {
+        Icon(Icons.Rounded.Psychology, if (on) "Thinking on: tap for quick answers" else "Thinking off: tap to think before answering", Modifier.size(22.dp))
     }
 }
 
@@ -787,11 +896,11 @@ private fun toolPresentation(name: String): Pair<ImageVector, String> = when (na
 }
 
 @Composable
-private fun EmptyChat() {
+private fun EmptyChat(name: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(12.dp))
-        Text("Hi, I'm ${SystemPrompts.ASSISTANT_NAME}", style = MaterialTheme.typography.titleLarge)
+        Text("Hi, I'm $name", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
         Text(
             "I run entirely on your phone. Ask me anything, or tell me to set alarms, reminders and timers, open apps and folders, " +

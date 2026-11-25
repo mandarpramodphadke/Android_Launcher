@@ -39,7 +39,8 @@ README.md describes the app; docs/PLAY_RELEASE.md describes the Play version and
 
 - `domain/` has no `android.*` imports. Android APIs live in `data/`, Compose in `presentation/`.
 - Inference is 100% on-device. User data never goes over the network; the only exceptions are the
-  model download and an AI-reply report that the user chooses to send.
+  model download, an AI-reply report that the user chooses to send, and downloading calendars from
+  links the user added.
 - Keep `SystemPrompts` free of timestamps (the prefix KV cache depends on it) and keep existing tool
   names and arguments.
 - Keep lint clean apart from `OldTargetApi`, and keep zero Kotlin compiler warnings.
@@ -70,7 +71,9 @@ README.md describes the app; docs/PLAY_RELEASE.md describes the Play version and
 ## Open items
 
 - Full-only until the owner has tried them on their phone: `TODO_WIDGETS`, `HOME_DRAG_AND_DROP`,
-  `SMART_FOLDERS` (1.4) and `SYSTEM_INFO` (1.5); table in docs/PLAY_RELEASE.md. Their policy check
-  passed: no new permission, no device identifiers, nothing leaves the device.
+  `SMART_FOLDERS` (1.4), `SYSTEM_INFO` (1.5), `CHAT_PANELS`, `CHAT_CUSTOMIZATION` and
+  `MORE_CALENDARS` (1.6); table in docs/PLAY_RELEASE.md. Their policy check passed: no new
+  permission, no device identifiers. The only new network use is downloading a calendar from a
+  link the user added (described in the privacy policy).
 - Before the first Play submission, set `report.form.url` (Google Form, see docs/report-form.md).
   Until then, AI-reply reports open an email draft, which leaves the app.

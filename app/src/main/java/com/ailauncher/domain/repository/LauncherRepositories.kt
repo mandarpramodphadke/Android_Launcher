@@ -2,7 +2,10 @@ package com.ailauncher.domain.repository
 
 import com.ailauncher.domain.home.GridSpec
 import com.ailauncher.domain.model.AppShortcut
+import com.ailauncher.domain.model.AgendaEvent
+import com.ailauncher.domain.model.CalendarFeed
 import com.ailauncher.domain.model.ContactMatch
+import com.ailauncher.domain.model.DeviceCalendar
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
 import com.ailauncher.domain.model.FileAccessLevel
@@ -197,4 +200,28 @@ interface SystemInfoRepository {
 
     /** Battery, memory, storage, CPU speeds and so on, every [intervalMillis] while collected. */
     fun live(intervalMillis: Long = 1_000L): Flow<LiveSystemStatus>
+}
+
+/**
+ * Where calendar events come from besides Google: every calendar in Android's calendar storage
+ * (Outlook, Exchange, Samsung, local, CalDAV… once their app syncs them there), and calendars the
+ * user subscribes to by link or imports from an .ics file, which are kept on the phone.
+ */
+interface CalendarSourcesRepository {
+    fun canReadDeviceCalendars(): Boolean
+    suspend fun deviceCalendars(): List<DeviceCalendar>
+
+    val feeds: Flow<List<CalendarFeed>>
+
+    /** Downloads the calendar at [url] (https or webcal) and keeps it updated. */
+    suspend fun subscribe(name: String, url: String): Result<CalendarFeed>
+
+    /** Imports a one-off .ics file ([uri] from the system file picker). */
+    suspend fun importFile(name: String?, uri: String): Result<CalendarFeed>
+    suspend fun refresh(feedId: Long): Result<CalendarFeed>
+    suspend fun refreshAll()
+    suspend fun remove(feedId: Long)
+
+    /** Events of subscribed and imported calendars overlapping [startMillis, endMillis). */
+    suspend fun feedEventsBetween(startMillis: Long, endMillis: Long): List<AgendaEvent>
 }

@@ -3,6 +3,9 @@ package com.ailauncher.data.actions
 import android.app.AlarmManager
 import android.content.Context
 import com.ailauncher.data.reminders.CalendarDataSource
+import com.ailauncher.domain.repository.CalendarSourcesRepository
+import com.ailauncher.domain.repository.SettingsRepository
+import kotlinx.coroutines.flow.first
 import com.ailauncher.domain.model.AgendaEvent
 import com.ailauncher.domain.repository.PlannerRepository
 import com.ailauncher.domain.repository.ReminderRepository
@@ -25,6 +28,8 @@ import javax.inject.Singleton
 class AgendaProvider @Inject constructor(
     @ApplicationContext private val context: Context,
     private val calendar: CalendarDataSource,
+    private val calendarSources: CalendarSourcesRepository,
+    private val settings: SettingsRepository,
     private val reminders: ReminderRepository,
     private val planner: PlannerRepository,
     private val todos: TodoRepository,
@@ -56,6 +61,9 @@ class AgendaProvider @Inject constructor(
         val zone = ZoneId.systemDefault()
         val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
         val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-        calendar.eventsBetween(start, end).map { AgendaEvent(it.title, it.startMillis, it.endMillis, it.allDay, it.location) }
+        val hidden = settings.launcherSettings.first().hiddenCalendarIds
+        val device = calendar.eventsBetween(start, end, hidden).map { AgendaEvent(it.title, it.startMillis, it.endMillis, it.allDay, it.location) }
+        // Subscribed and imported calendars (Outlook links, iCloud, school timetables, …).
+        (device + calendarSources.feedEventsBetween(start, end)).sortedWith(compareBy({ !it.allDay }, { it.startMillis }))
     }
 }
