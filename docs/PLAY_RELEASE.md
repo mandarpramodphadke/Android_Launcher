@@ -21,6 +21,17 @@ version only after it has been tested on a phone and checked against Google Play
 until then a switch in `app/build.gradle.kts` keeps it off in the Play build. Features that
 Google Play doesn't allow, such as all-files access, stay in the full version.
 
+| Since | Feature | Switch | Status |
+|---|---|---|---|
+| 1.4 | To-do widgets (list, Today, Add a to-do) | `TODO_WIDGETS` | Full only: waiting for a phone test |
+| 1.4 | Drag and drop on the home screen | `HOME_DRAG_AND_DROP` | Full only: waiting for a phone test |
+| 1.4 | Smart folders | `SMART_FOLDERS` | Full only: waiting for a phone test |
+
+Policy check for the 1.4 features: they add no permission and send nothing off the phone. Smart
+folders that read app usage use the Usage access the app already has (on-device only), so the
+Data safety answers below don't change. Once tested, set each switch to `true` in the `play`
+flavor and build a new bundle.
+
 ## 1. One-time setup
 
 1. **Developer account.** Create one at play.google.com/console (one-time US$25 fee and identity

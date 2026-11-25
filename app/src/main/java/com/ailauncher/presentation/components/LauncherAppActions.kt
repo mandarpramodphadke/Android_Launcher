@@ -108,7 +108,9 @@ abstract class LauncherAppsViewModel(
 
     override fun addToFolder(app: AppInfo, folder: CustomFolder) {
         viewModelScope.launch {
-            if (app.packageName in folder.packageNames) {
+            if (folder.isSmart) {
+                message("${folder.name} fills itself. Edit its rule to change what's in it")
+            } else if (app.packageName in folder.packageNames) {
                 message("${app.label} is already in ${folder.name}")
             } else {
                 folderRepository.setApps(folder.id, folder.packageNames + app.packageName)

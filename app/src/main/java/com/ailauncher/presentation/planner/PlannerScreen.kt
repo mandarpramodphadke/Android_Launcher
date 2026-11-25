@@ -527,19 +527,22 @@ private fun TodoRow(
 
 // ------------------------------------------------------------------------------- editors
 
+/** Create or edit a to-do. Also opened from the home screen's to-do widgets. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TodoEditorSheet(
+internal fun TodoEditorSheet(
     existing: TodoItem?,
     lists: List<String>,
     onSave: (title: String, notes: String?, list: String, priority: TodoPriority, dueAtMillis: Long?) -> Unit,
     onDelete: (() -> Unit)?,
     onDismiss: () -> Unit,
+    /** List for a new to-do (e.g. the list a widget shows). */
+    initialList: String? = null,
 ) {
     val zone = ZoneId.systemDefault()
     val title = rememberTextFieldState(existing?.title.orEmpty())
     val notes = rememberTextFieldState(existing?.notes.orEmpty())
-    val list = rememberTextFieldState(existing?.listName ?: TodoItem.DEFAULT_LIST)
+    val list = rememberTextFieldState(existing?.listName ?: initialList ?: TodoItem.DEFAULT_LIST)
     var priority by remember { mutableStateOf(existing?.priority ?: TodoPriority.MEDIUM) }
     var due by remember { mutableStateOf(existing?.dueAtMillis?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime() }) }
     var pickDate by remember { mutableStateOf(false) }
@@ -779,7 +782,7 @@ private fun dayWord(date: LocalDate, today: LocalDate): String = when (date) {
 
 private fun localDate(millis: Long, zone: ZoneId): LocalDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
 
-private fun dueLabel(millis: Long, zone: ZoneId, today: LocalDate, use24Hour: Boolean): String {
+internal fun dueLabel(millis: Long, zone: ZoneId, today: LocalDate, use24Hour: Boolean): String {
     val at = Instant.ofEpochMilli(millis).atZone(zone)
     val time = at.toLocalTime().format(DateTimeFormatter.ofPattern(if (use24Hour) "HH:mm" else "h:mm a"))
     return when (val day = at.toLocalDate()) {

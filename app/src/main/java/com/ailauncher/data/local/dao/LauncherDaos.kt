@@ -39,6 +39,16 @@ interface HomeItemDao {
     @Query("DELETE FROM home_items WHERE type = 'FOLDER' AND folderId = :folderId")
     suspend fun deleteFolder(folderId: Long)
 
+    @Query("DELETE FROM home_items WHERE id IN (:ids)")
+    suspend fun deleteAll(ids: List<Long>)
+
+    /** Deletes [ids] and inserts [item] atomically (apps merged into a new folder). */
+    @Transaction
+    suspend fun replaceWithItem(ids: List<Long>, item: HomeItemEntity): Long {
+        deleteAll(ids)
+        return insert(item)
+    }
+
     @Query("SELECT * FROM home_items WHERE pageIndex = :page")
     suspend fun onPage(page: Int): List<HomeItemEntity>
 

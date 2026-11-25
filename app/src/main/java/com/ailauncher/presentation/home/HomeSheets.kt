@@ -60,6 +60,7 @@ import com.ailauncher.domain.search.FuzzyMatcher
 import com.ailauncher.presentation.components.AppListItem
 import com.ailauncher.presentation.components.LauncherTextField
 import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.model.LauncherWidgetKind
 import com.ailauncher.presentation.components.FolderIcon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -102,6 +103,9 @@ fun WidgetPickerSheet(
     preview: (WidgetProviderEntry) -> Any?,
     onPick: (WidgetProviderEntry) -> Unit,
     onDismiss: () -> Unit,
+    /** The launcher's own widgets, listed first under "AI Launcher". */
+    launcherWidgets: List<LauncherWidgetKind> = emptyList(),
+    onPickLauncherWidget: (LauncherWidgetKind) -> Unit = {},
 ) {
     val search = rememberTextFieldState()
     val filtered by remember(providers) {
@@ -109,6 +113,12 @@ fun WidgetPickerSheet(
             val all = providers.orEmpty()
             val q = search.text.toString()
             if (q.isBlank()) all else FuzzyMatcher.rank(q, all) { listOf(it.label, it.appLabel) }.map { it.first }
+        }
+    }
+    val ownWidgets by remember(launcherWidgets) {
+        derivedStateOf {
+            val q = search.text.toString()
+            if (q.isBlank()) launcherWidgets else FuzzyMatcher.rank(q, launcherWidgets) { listOf(it.label, "AI Launcher", "to-do") }.map { it.first }
         }
     }
     val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
@@ -125,9 +135,44 @@ fun WidgetPickerSheet(
             Spacer(Modifier.size(8.dp))
             when {
                 providers == null -> LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 24.dp))
-                providers.isEmpty() -> Text("No widgets installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
+                providers.isEmpty() && launcherWidgets.isEmpty() -> Text("No widgets installed.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
             }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+                if (ownWidgets.isNotEmpty()) {
+                    item(key = "header-ai-launcher") {
+                        Text(
+                            "AI Launcher",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 4.dp),
+                        )
+                    }
+                    items(ownWidgets, key = { "launcher-${it.key}" }) { kind ->
+                        Surface(
+                            onClick = {
+                                onPickLauncherWidget(kind)
+                                onDismiss()
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        ) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                LauncherWidgetPreview(kind)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(kind.label, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(kind.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                                    Text(
+                                        "${kind.defaultSpanX} × ${kind.defaultSpanY}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 filtered.groupBy { it.appLabel }.forEach { (app, entries) ->
                     item(key = "header-$app") {
                         Text(

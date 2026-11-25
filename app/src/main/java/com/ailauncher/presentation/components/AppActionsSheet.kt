@@ -222,7 +222,8 @@ fun AppActionsSheet(
             title = { Text("Add ${app.label} to…") },
             text = {
                 LazyColumn {
-                    items(folders, key = { it.id }) { folder ->
+                    // Smart folders fill themselves, so apps can't be added to them by hand.
+                    items(folders.filter { !it.isSmart }, key = { it.id }) { folder ->
                         AppListItem(
                             headlineContent = { Text(folder.name, maxLines = 1) },
                             supportingContent = folder.description?.let { { Text(it, maxLines = 1) } },
@@ -234,7 +235,7 @@ fun AppActionsSheet(
                             },
                         )
                     }
-                    if (folders.isEmpty()) item { Text("No folders yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (folders.none { !it.isSmart }) item { Text("No folders yet.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             },
             confirmButton = {

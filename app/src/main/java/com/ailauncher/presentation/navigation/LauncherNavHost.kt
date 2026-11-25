@@ -152,6 +152,7 @@ fun LauncherNavHost(
                             onOpenChat = { prompt -> navController.navigate(ChatRoute(prompt)) { launchSingleTop = true } },
                             onOpenSettings = { navController.navigate(SettingsRoute) { launchSingleTop = true } },
                             onOpenPlanner = { navController.navigate(PlannerRoute()) { launchSingleTop = true } },
+                            onOpenTodos = { navController.navigate(PlannerRoute(PlannerTab.TODOS.name)) { launchSingleTop = true } },
                         )
                     }
                 }

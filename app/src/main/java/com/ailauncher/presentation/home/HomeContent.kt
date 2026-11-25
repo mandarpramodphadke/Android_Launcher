@@ -54,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -126,6 +127,14 @@ class HomeCallbacks(
     val onPageChanged: (Int) -> Unit = {},
     /** Swipe left past the last page: open the assistant. */
     val onSwipePastLastPage: () -> Unit = {},
+    /** Long-press and drag apps and folders around the pages (off: long press only opens menus). */
+    val dragEnabled: Boolean = false,
+    /** A dragged app or folder was let go over [DropTarget] (null: nowhere it can go). */
+    val onDropItem: (HomeItem, DropTarget?) -> Unit = { _, _ -> },
+    /** Dragging past the last page adds a page. */
+    val onAddPage: () -> Unit = {},
+    val onConfigureWidget: (HomeItem) -> Unit = {},
+    val widgets: LauncherWidgetCallbacks = LauncherWidgetCallbacks(),
 )
 
 /** Per-element progress of the unlock entrance (1 = settled). */
@@ -158,7 +167,8 @@ internal fun HomeContent(
     modifier: Modifier = Modifier,
     entrance: HomeEntrance = HomeEntrance(),
 ) {
-    Box(modifier.fillMaxSize()) {
+    val drag = remember { HomeDragState() }
+    Box(modifier.fillMaxSize().onGloballyPositioned { drag.root = it }) {
         if (style.homeTextShade) ReadabilityScrims(tint, style.minimal)
         Column(
             Modifier
@@ -171,18 +181,38 @@ internal fun HomeContent(
             if (style.minimal) {
                 MinimalHome(state, tint, style, queryState, clip, callbacks, entrance)
             } else {
-                Box(Modifier.weight(1f).fillMaxWidth().entrance(entrance.pages).swipePastLastPage(pagerState, callbacks.onSwipePastLastPage)) {
-                    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
-                        HomePage(page, state, tint, style, widgetHost, editingWidgetId, callbacks, entrance)
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .entrance(entrance.pages)
+                        .onGloballyPositioned { drag.pager = it }
+                        .swipePastLastPage(pagerState, { drag.isDragging }, callbacks.onSwipePastLastPage),
+                ) {
+                    // While dragging, every page stays composed so the dragged tile's gesture survives page flips.
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        beyondViewportPageCount = if (drag.isDragging) state.pageCount else 1,
+                    ) { page ->
+                        HomePage(page, state, tint, style, widgetHost, editingWidgetId, callbacks, entrance, drag)
                     }
                 }
+                if (callbacks.dragEnabled) DragPageFlipper(drag, pagerState, state, callbacks.onAddPage)
                 LaunchedEffect(pagerState.currentPage) { callbacks.onPageChanged(pagerState.currentPage) }
                 PageIndicator(state.pageCount, pagerState.currentPage, tint, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp))
                 AnimatedVisibility(visible = state.searchResults.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                     SearchResultsRow(state.searchResults, callbacks)
                 }
                 Spacer(Modifier.height(8.dp))
-                DockBar(state, callbacks, Modifier.entrance(entrance.dock))
+                DockBar(
+                    state,
+                    callbacks,
+                    Modifier
+                        .entrance(entrance.dock)
+                        .onGloballyPositioned { drag.dock = it },
+                    dropHere = drag.isDragging && drag.target == DropTarget.Dock,
+                )
                 Spacer(Modifier.height(10.dp))
                 if (state.settings.showAiCommandBar) {
                     CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar))
@@ -190,25 +220,29 @@ internal fun HomeContent(
                 SwipeUpHint(tint, onClick = callbacks.onOpenDrawer)
             }
         }
+        DragGhost(drag, state, tint)
     }
 }
 
 /** Swipe left past the last page opens the assistant (horizontal swipes otherwise belong to the pager). */
-private fun Modifier.swipePastLastPage(pagerState: PagerState, onSwipe: () -> Unit): Modifier = pointerInput(pagerState) {
+private fun Modifier.swipePastLastPage(pagerState: PagerState, dragging: () -> Boolean, onSwipe: () -> Unit): Modifier = pointerInput(pagerState) {
     val threshold = 96.dp.toPx()
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         val startedOnLast = pagerState.currentPage == pagerState.pageCount - 1 && abs(pagerState.currentPageOffsetFraction) < 0.01f
         var dx = 0f
         var dy = 0f
+        var draggedItem = false
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             dx = change.position.x - down.position.x
             dy = change.position.y - down.position.y
+            // Dragging an app towards the edge is not a swipe.
+            if (dragging()) draggedItem = true
             if (!change.pressed) break
         }
-        if (startedOnLast && dx < -threshold && abs(dx) > abs(dy) * 1.5f) onSwipe()
+        if (startedOnLast && !draggedItem && dx < -threshold && abs(dx) > abs(dy) * 1.5f) onSwipe()
     }
 }
 
@@ -222,6 +256,7 @@ private fun HomePage(
     editingWidgetId: Long?,
     callbacks: HomeCallbacks,
     entrance: HomeEntrance,
+    drag: HomeDragState,
 ) {
     MeasuredPage(state.settings.homeGridColumns) { metrics ->
         LaunchedEffect(metrics) {
@@ -256,12 +291,35 @@ private fun HomePage(
                     onOpenFolder = callbacks.onOpenFolder,
                     onFolderLongPress = { item, folder -> callbacks.onFolderLongPress(folder, item) },
                     onWidgetLongPress = callbacks.onWidgetLongPress,
+                    onConfigureWidget = callbacks.onConfigureWidget,
                 ),
                 onResizeWidget = callbacks.onResizeWidget,
                 onRemoveItem = callbacks.onRemoveItem,
                 onMoveItem = callbacks.onMoveItem,
                 onDoneEditing = callbacks.onDoneEditing,
                 pageCount = state.pageCount,
+                page = page,
+                drag = if (callbacks.dragEnabled) {
+                    HomeGridDrag(
+                        state = drag,
+                        onStart = drag::start,
+                        onMove = drag::move,
+                        onEnd = { drag.finish()?.let { (item, target) -> callbacks.onDropItem(item, target) } },
+                        onCancel = drag::cancel,
+                    )
+                } else {
+                    null
+                },
+                launcherWidget = { item, config ->
+                    LauncherWidgetView(
+                        config = config,
+                        data = state.widgetData,
+                        now = state.now,
+                        use24Hour = state.use24Hour,
+                        callbacks = callbacks.widgets,
+                        onLongPress = { callbacks.onWidgetLongPress(item) },
+                    )
+                },
             )
         }
     }
@@ -461,17 +519,17 @@ private fun ClipboardChips(clip: ClipInsight, callbacks: HomeCallbacks) {
 }
 
 @Composable
-private fun DockBar(state: HomeUiState, callbacks: HomeCallbacks, modifier: Modifier = Modifier) {
+private fun DockBar(state: HomeUiState, callbacks: HomeCallbacks, modifier: Modifier = Modifier, dropHere: Boolean = false) {
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+        color = if (dropHere) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = themedOutline(),
+        border = if (dropHere) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else themedOutline(),
         modifier = modifier.fillMaxWidth(),
     ) {
         if (state.dock.isEmpty()) {
             Text(
-                "Long-press any app in the drawer to pin it here",
+                if (callbacks.dragEnabled) "Drag an app here, or long-press one in the drawer, to pin it" else "Long-press any app in the drawer to pin it here",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(20.dp),

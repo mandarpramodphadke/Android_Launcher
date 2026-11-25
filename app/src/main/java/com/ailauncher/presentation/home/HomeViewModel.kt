@@ -21,17 +21,23 @@ import com.ailauncher.data.widgets.LauncherWidgetHost
 import com.ailauncher.data.widgets.WidgetProviderEntry
 import com.ailauncher.domain.clipboard.ClipInsight
 import com.ailauncher.domain.clipboard.ClipboardAnalyzer
+import com.ailauncher.domain.home.DropAction
+import com.ailauncher.domain.home.FolderNaming
 import com.ailauncher.domain.home.GridSpec
 import com.ailauncher.domain.home.HomeGridPlanner
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
+import com.ailauncher.domain.model.FolderAccent
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.LauncherWidgetConfig
+import com.ailauncher.domain.model.LauncherWidgetKind
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.PlannerBlock
 import com.ailauncher.domain.model.SmartExtraction
 import com.ailauncher.domain.model.SmartPill
+import com.ailauncher.domain.model.TodoItem
 import com.ailauncher.domain.model.TodoPriority
 import com.ailauncher.domain.model.UpcomingEvent
 import com.ailauncher.domain.repository.AppRepository
@@ -86,6 +92,8 @@ data class HomeUiState(
     val badges: Map<String, Int> = emptyMap(),
     val glance: Glance = Glance(),
     val settings: LauncherSettings = LauncherSettings(),
+    /** To-dos and today's plan for the launcher's own widgets. */
+    val widgetData: LauncherWidgetData = LauncherWidgetData(),
 ) {
     /** Apps of a folder, in the folder's order. */
     fun appsOf(folder: CustomFolder): List<AppInfo> {
@@ -106,6 +114,9 @@ sealed interface HomeEvent {
     data class BindWidget(val appWidgetId: Int, val entry: WidgetProviderEntry) : HomeEvent
     /** The widget needs its configuration activity. */
     data class ConfigureWidget(val appWidgetId: Int) : HomeEvent
+
+    /** Apps were dropped onto each other: offer to name the new folder. */
+    data class FolderCreated(val folderId: Long) : HomeEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -120,7 +131,7 @@ class HomeViewModel @Inject constructor(
     shortcutRepository: ShortcutRepository,
     private val settingsRepository: SettingsRepository,
     private val notifications: NotificationDigestRepository,
-    todos: TodoRepository,
+    private val todos: TodoRepository,
     planner: PlannerRepository,
     upcomingEventsProvider: UpcomingEventsProvider,
     private val gestures: SystemGestureController,
@@ -144,7 +155,13 @@ class HomeViewModel @Inject constructor(
     private val query: Flow<String> = snapshotFlow { queryState.text.toString() }.distinctUntilChanged()
 
     private data class Layout(val items: List<HomeItem>, val pages: Int, val folders: Map<Long, CustomFolder>, val dock: List<DockEntry>)
-    private data class Ambient(val pills: List<SmartPill>, val badges: Map<String, Int>, val glance: Glance, val upcoming: UpcomingEvent?)
+    private data class Ambient(
+        val pills: List<SmartPill>,
+        val badges: Map<String, Int>,
+        val glance: Glance,
+        val upcoming: UpcomingEvent?,
+        val widgetData: LauncherWidgetData,
+    )
 
     private val layout: Flow<Layout> = combine(homeLayout.items, homeLayout.pageCount, folderRepository.folders, dockRepository.entries) { items, pages, folders, dock ->
         Layout(items, pages, folders.associateBy { it.id }, dock)
@@ -152,18 +169,18 @@ class HomeViewModel @Inject constructor(
 
     private val today: Flow<LocalDate> = clock.map { it.toLocalDate() }.distinctUntilChanged()
 
-    private val glance: Flow<Glance> = combine(todos.todos, today.flatMapLatest { planner.observeDay(it) }, clock) { list, blocks, now ->
+    private val glance: Flow<Pair<Glance, LauncherWidgetData>> = combine(todos.todos, today.flatMapLatest { planner.observeDay(it) }, clock) { list, blocks, now ->
         val open = list.filter { !it.completed }
         val minute = now.hour * 60 + now.minute
         Glance(
             openTodos = open.size,
             urgentTodos = open.count { it.priority == TodoPriority.HIGH },
             nextBlock = blocks.filter { !it.completed && it.endMinutes > minute }.minByOrNull { it.startMinutes },
-        )
+        ) to LauncherWidgetData(list, blocks)
     }
 
     private val ambient: Flow<Ambient> = combine(notifications.smartPills, notifications.badgeCounts, glance, upcomingEventsProvider.nextEvent) { pills, badges, g, up ->
-        Ambient(pills, badges, g, up)
+        Ambient(pills, badges, g.first, up, g.second)
     }
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -188,6 +205,7 @@ class HomeViewModel @Inject constructor(
             badges = if (settings.notificationDigestEnabled && settings.notificationBadges) ctx.badges else emptyMap(),
             glance = ctx.glance,
             settings = settings,
+            widgetData = ctx.widgetData,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
@@ -271,7 +289,119 @@ class HomeViewModel @Inject constructor(
     }
 
     fun resizeItem(item: HomeItem, spanX: Int, spanY: Int) {
-        viewModelScope.launch { homeLayout.resize(item.id, spanX, spanY, gridSpec) }
+        val kind = (item.content as? HomeItemContent.LauncherWidget)?.config?.kind
+        val sx = kind?.let { spanX.coerceAtLeast(it.minSpanX) } ?: spanX
+        val sy = kind?.let { spanY.coerceAtLeast(it.minSpanY) } ?: spanY
+        viewModelScope.launch { homeLayout.resize(item.id, sx, sy, gridSpec) }
+    }
+
+    // --------------------------------------------------------------------- drag and drop
+
+    /** A dragged app or folder was let go (see [HomeDropPlanner]). */
+    fun drop(item: HomeItem, target: DropTarget?) {
+        viewModelScope.launch {
+            when (target) {
+                null -> Unit
+                DropTarget.Dock -> dropOnDock(item)
+                is DropTarget.Cell -> when (val action = target.action) {
+                    DropAction.None -> Unit
+                    is DropAction.Move -> if (!homeLayout.move(item.id, action.target, gridSpec)) message("That spot is taken")
+                    is DropAction.CreateFolder -> createFolderFromDrop(item, action.target)
+                    is DropAction.AddToFolder -> addToFolderFromDrop(item, action.folderId)
+                    is DropAction.SmartFolder -> {
+                        val name = uiState.value.folders[action.folderId]?.name ?: "That folder"
+                        message("$name fills itself, so apps can't be dropped into it")
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun dropOnDock(item: HomeItem) {
+        when (val content = item.content) {
+            is HomeItemContent.App -> {
+                val app = uiState.value.apps[content.componentKey] ?: return
+                when {
+                    app.isInDock -> homeLayout.remove(item.id)
+                    dockRepository.pinApp(app.componentKey) -> homeLayout.remove(item.id)
+                    else -> message("The dock is full (${DockRepository.MAX_SIZE} slots)")
+                }
+            }
+            is HomeItemContent.Folder -> {
+                val folder = uiState.value.folders[content.folderId] ?: return
+                when {
+                    folder.isInDock -> homeLayout.remove(item.id)
+                    dockRepository.pinFolder(folder.id) -> homeLayout.remove(item.id)
+                    else -> message("The dock is full (${DockRepository.MAX_SIZE} slots)")
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private suspend fun createFolderFromDrop(dragged: HomeItem, target: HomeItem) {
+        val state = uiState.value
+        val apps = listOf(target, dragged).mapNotNull { (it.content as? HomeItemContent.App)?.let { app -> state.apps[app.componentKey] } }
+        if (apps.size != 2) return
+        val accent = FolderAccent.entries[state.folders.size % FolderAccent.entries.size]
+        val folderId = folderRepository.create(FolderNaming.suggest(apps), null, accent, apps.map { it.packageName })
+        if (homeLayout.replaceWithFolder(listOf(dragged.id, target.id), folderId, target.position, gridSpec)) {
+            _events.send(HomeEvent.FolderCreated(folderId))
+        } else {
+            folderRepository.delete(folderId)
+            message("Couldn't make a folder there")
+        }
+    }
+
+    private suspend fun addToFolderFromDrop(dragged: HomeItem, folderId: Long) {
+        val state = uiState.value
+        val app = (dragged.content as? HomeItemContent.App)?.let { state.apps[it.componentKey] } ?: return
+        val folder = state.folders[folderId] ?: return
+        if (app.packageName !in folder.packageNames) folderRepository.setApps(folder.id, folder.packageNames + app.packageName)
+        homeLayout.remove(dragged.id)
+        message("Moved ${app.label} into ${folder.name}")
+    }
+
+    // ------------------------------------------------------------------ launcher widgets
+
+    fun addLauncherWidget(kind: LauncherWidgetKind) {
+        val spec = gridSpec
+        val spanX = kind.defaultSpanX.coerceAtMost(spec.columns)
+        val spanY = kind.defaultSpanY.coerceAtMost((spec.rows - spec.reservedTopRowsOnFirstPage).coerceAtLeast(1))
+        viewModelScope.launch {
+            val position = homeLayout.addLauncherWidget(LauncherWidgetConfig(kind), spanX, spanY, HomeGridMetrics.currentPage, spec)
+            message(if (position != null) "${kind.label} added to page ${position.page + 1}" else "No room for that widget. Free up space or add a page")
+        }
+    }
+
+    fun setLauncherWidgetList(item: HomeItem, listName: String?) {
+        val config = (item.content as? HomeItemContent.LauncherWidget)?.config ?: return
+        viewModelScope.launch { homeLayout.setLauncherWidgetConfig(item.id, config.copy(listName = listName)) }
+    }
+
+    fun toggleTodo(item: TodoItem) {
+        viewModelScope.launch { todos.setCompleted(item.id, !item.completed) }
+    }
+
+    fun saveTodo(existing: TodoItem?, title: String, notes: String?, listName: String, priority: TodoPriority, dueAtMillis: Long?) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return
+        val list = listName.trim().ifEmpty { TodoItem.DEFAULT_LIST }
+        val cleanNotes = notes?.trim()?.takeIf { it.isNotEmpty() }
+        viewModelScope.launch {
+            if (existing == null) {
+                todos.add(cleanTitle, cleanNotes, list, priority, dueAtMillis)
+            } else {
+                todos.update(existing.copy(title = cleanTitle, notes = cleanNotes, listName = list, priority = priority, dueAtMillis = dueAtMillis))
+            }
+        }
+    }
+
+    fun deleteTodo(item: TodoItem) {
+        viewModelScope.launch {
+            todos.delete(item.id)
+            message("Deleted “${item.title}”")
+        }
     }
 
     fun moveItemToPage(item: HomeItem, page: Int) {

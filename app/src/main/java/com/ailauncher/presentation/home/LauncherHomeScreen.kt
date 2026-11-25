@@ -3,6 +3,7 @@ package com.ailauncher.presentation.home
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,15 +26,23 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.snapTo
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -53,6 +62,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -69,15 +80,23 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ailauncher.domain.clipboard.ClipAction
 import com.ailauncher.domain.clipboard.ClipboardAnalyzer
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.HomeItem
+import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.LauncherTool
+import com.ailauncher.domain.model.LauncherWidgetKind
+import com.ailauncher.domain.model.TodoItem
+import com.ailauncher.domain.usecase.TodoWidgets
+import com.ailauncher.BuildConfig
 import com.ailauncher.presentation.HomePress
 import com.ailauncher.presentation.components.AppActionsSheet
 import com.ailauncher.presentation.components.HomeGridMetrics
+import com.ailauncher.presentation.components.SpecialAccess
 import com.ailauncher.presentation.components.SystemBarIcons
 import com.ailauncher.presentation.components.findActivity
 import com.ailauncher.presentation.components.rememberLaunchRequestFactory
@@ -90,6 +109,7 @@ import com.ailauncher.presentation.drawer.authenticatePrivateSpace
 import com.ailauncher.presentation.folders.FolderEditorSheet
 import com.ailauncher.presentation.folders.FolderSheet
 import com.ailauncher.presentation.folders.FoldersViewModel
+import com.ailauncher.presentation.planner.TodoEditorSheet
 import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.theme.rememberWallpaperTint
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +130,9 @@ private const val WIDGET_CONFIGURE_REQUEST = 0x5747 // "WG"
 private data class AppSheetTarget(val app: AppInfo, val item: HomeItem?)
 
 private data class FolderMenuTarget(val folder: CustomFolder, val item: HomeItem?)
+
+/** The to-do editor opened from a widget: a new to-do (in [list]) or an existing one. */
+private data class TodoEdit(val item: TodoItem?, val list: String?)
 
 /** The folder editor: a new folder (optionally pre-filled and placed on home) or an existing one. */
 private data class FolderEdit(
@@ -132,6 +155,7 @@ fun LauncherHomeScreen(
     onOpenChat: (prompt: String?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPlanner: () -> Unit,
+    onOpenTodos: () -> Unit = onOpenPlanner,
     viewModel: HomeViewModel = hiltViewModel(),
     drawerViewModel: AppDrawerViewModel = hiltViewModel(),
     foldersViewModel: FoldersViewModel = hiltViewModel(),
@@ -159,6 +183,11 @@ fun LauncherHomeScreen(
     var showPages by remember { mutableStateOf(false) }
     var showLockSetup by remember { mutableStateOf(false) }
     var editingWidgetId by remember { mutableStateOf<Long?>(null) }
+    var todoEdit by remember { mutableStateOf<TodoEdit?>(null) }
+    var widgetListTarget by remember { mutableStateOf<HomeItem?>(null) }
+    /** A folder just made by dropping one app onto another: its editor opens once it has loaded. */
+    var namingFolderId by remember { mutableStateOf<Long?>(null) }
+    val hasUsageAccess by foldersViewModel.hasUsageAccess.collectAsStateWithLifecycle()
     var privateSpace by remember { mutableStateOf<PrivateSpaceAuth?>(null) }
     var pendingBindId by rememberSaveable { mutableIntStateOf(AppWidgetManager.INVALID_APPWIDGET_ID) }
     var pendingConfigureId by rememberSaveable { mutableIntStateOf(AppWidgetManager.INVALID_APPWIDGET_ID) }
@@ -330,6 +359,7 @@ fun LauncherHomeScreen(
                     runCatching { bindLauncher.launch(viewModel.widgetHost.bindIntent(event.appWidgetId, event.entry)) }
                         .onFailure { viewModel.onWidgetBindResult(event.appWidgetId, granted = false) }
                 }
+                is HomeEvent.FolderCreated -> namingFolderId = event.folderId
                 is HomeEvent.ConfigureWidget -> {
                     pendingConfigureId = event.appWidgetId
                     val activity = context.findActivity()
@@ -360,6 +390,8 @@ fun LauncherHomeScreen(
             folderMenu = null
             openFolderId = null
             folderEdit = null
+            todoEdit = null
+            widgetListTarget = null
             showHomeMenu = false
             showWidgetPicker = false
             showPages = false
@@ -372,6 +404,13 @@ fun LauncherHomeScreen(
                 press.alreadyOnHome && pagerState.currentPage != 0 -> pagerState.animateScrollToPage(0)
             }
         }
+    }
+
+    LaunchedEffect(namingFolderId, folderList) {
+        val id = namingFolderId ?: return@LaunchedEffect
+        val folder = folderList.firstOrNull { it.id == id } ?: return@LaunchedEffect
+        namingFolderId = null
+        folderEdit = FolderEdit(folder)
     }
 
     // "Open my Work folder" from the assistant.
@@ -432,7 +471,42 @@ fun LauncherHomeScreen(
         },
         onPageChanged = viewModel::onPageChanged,
         onSwipePastLastPage = { onOpenChat(null) },
+        dragEnabled = BuildConfig.HOME_DRAG_AND_DROP,
+        onDropItem = viewModel::drop,
+        onAddPage = viewModel::addPage,
+        onConfigureWidget = { item -> widgetListTarget = item },
+        widgets = LauncherWidgetCallbacks(
+            onToggleTodo = viewModel::toggleTodo,
+            onAddTodo = { list -> todoEdit = TodoEdit(null, list) },
+            onEditTodo = { item -> todoEdit = TodoEdit(item, item.listName) },
+            onOpenTodos = onOpenTodos,
+            onOpenPlanner = onOpenPlanner,
+        ),
     )
+
+    fun openPrivateSpace() {
+        focusManager.clearFocus()
+        authenticatePrivateSpace(context.findActivity() ?: context) { result ->
+            when (result) {
+                is PrivateSpaceAuth.Failed -> showMessage(result.message)
+                else -> privateSpace = result
+            }
+        }
+    }
+
+    /** A launcher feature from the "AI Launcher" tools folder. */
+    fun openTool(tool: LauncherTool) {
+        when (tool) {
+            LauncherTool.ASSISTANT -> onOpenChat(null)
+            LauncherTool.MY_DAY -> onOpenChat("Summarize my day")
+            LauncherTool.PLANNER -> onOpenPlanner()
+            LauncherTool.TODOS -> onOpenTodos()
+            LauncherTool.CATCH_UP -> onOpenChat("What did I miss?")
+            LauncherTool.PRIVATE_SPACE -> openPrivateSpace()
+            LauncherTool.WIDGETS -> showWidgetPicker = true
+            LauncherTool.SETTINGS -> onOpenSettings()
+        }
+    }
 
     val drawerCallbacks = DrawerCallbacks(
         onLaunch = { app, bounds -> viewModel.launch(launchFactory(app, bounds)) },
@@ -444,15 +518,7 @@ fun LauncherHomeScreen(
         onOpenFolder = { folder -> openFolderId = folder.id },
         onCreateFolder = { folderEdit = FolderEdit() },
         onOpenPlanner = onOpenPlanner,
-        onOpenPrivateSpace = {
-            focusManager.clearFocus()
-            authenticatePrivateSpace(context.findActivity() ?: context) { result ->
-                when (result) {
-                    is PrivateSpaceAuth.Failed -> showMessage(result.message)
-                    else -> privateSpace = result
-                }
-            }
-        },
+        onOpenPrivateSpace = ::openPrivateSpace,
     )
 
     Box(
@@ -609,6 +675,11 @@ fun LauncherHomeScreen(
         // A folder that was just deleted (or hasn't loaded yet) simply shows nothing.
         val folder = state.folders[id] ?: folderList.firstOrNull { it.id == id }
         if (folder != null) {
+            // Also on returning from the Usage access screen, so the hint and the apps update.
+            LifecycleResumeEffect(folder.id) {
+                foldersViewModel.onFolderOpened(folder)
+                onPauseOrDispose { }
+            }
             FolderSheet(
                 folder = folder,
                 apps = state.appsOf(folder),
@@ -627,21 +698,68 @@ fun LauncherHomeScreen(
                     foldersViewModel.delete(folder)
                 },
                 onDismiss = { openFolderId = null },
+                onOpenTool = ::openTool,
+                onSmartAppLongPress = { app ->
+                    openFolderId = null
+                    sheetApp = AppSheetTarget(app, null)
+                },
+                onMakeEditable = { foldersViewModel.makeEditable(folder) },
+                usageAccessMissing = folder.rule?.usesAppUsage == true && !hasUsageAccess,
+                onAllowUsageAccess = { SpecialAccess.open(context, SpecialAccess.usageAccessIntent(context), Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) },
             )
         }
     }
 
     folderEdit?.let { edit ->
+        LaunchedEffect(edit) { if (BuildConfig.SMART_FOLDERS) foldersViewModel.loadPreviewUsage() }
         FolderEditorSheet(
             existing = edit.folder,
             allApps = editorApps,
             initialSelection = edit.initialSelection,
-            onSave = { name, description, accent, packages ->
-                foldersViewModel.save(edit.folder, name, description, accent, packages, placeOnHome = edit.placeOnHome)
+            onSave = { name, description, accent, packages, rule ->
+                foldersViewModel.save(edit.folder, name, description, accent, packages, rule, placeOnHome = edit.placeOnHome)
                 folderEdit = null
             },
             onDismiss = { folderEdit = null },
+            smartFolders = BuildConfig.SMART_FOLDERS,
+            previewCount = foldersViewModel::previewCount,
         )
+    }
+
+    todoEdit?.let { edit ->
+        TodoEditorSheet(
+            existing = edit.item,
+            lists = TodoWidgets.lists(state.widgetData.todos),
+            initialList = edit.list,
+            onSave = { title, notes, list, priority, due ->
+                viewModel.saveTodo(edit.item, title, notes, list, priority, due)
+                todoEdit = null
+            },
+            onDelete = edit.item?.let { item ->
+                {
+                    viewModel.deleteTodo(item)
+                    todoEdit = null
+                }
+            },
+            onDismiss = { todoEdit = null },
+        )
+    }
+
+    widgetListTarget?.let { item ->
+        val config = (item.content as? HomeItemContent.LauncherWidget)?.config
+        if (config == null) {
+            widgetListTarget = null
+        } else {
+            WidgetListDialog(
+                lists = TodoWidgets.lists(state.widgetData.todos),
+                selected = config.listName,
+                onPick = { list ->
+                    viewModel.setLauncherWidgetList(item, list)
+                    widgetListTarget = null
+                },
+                onDismiss = { widgetListTarget = null },
+            )
+        }
     }
 
     if (showHomeMenu) {
@@ -672,6 +790,8 @@ fun LauncherHomeScreen(
             preview = { entry -> viewModel.widgetHost.previewImage(entry) },
             onPick = viewModel::addWidget,
             onDismiss = { showWidgetPicker = false },
+            launcherWidgets = if (BuildConfig.TODO_WIDGETS) LauncherWidgetKind.entries else emptyList(),
+            onPickLauncherWidget = viewModel::addLauncherWidget,
         )
     }
 
@@ -731,4 +851,32 @@ fun LauncherHomeScreen(
             },
         )
     }
+}
+
+/** Which to-do list a widget shows: all lists, or one. */
+@Composable
+private fun WidgetListDialog(lists: List<String>, selected: String?, onPick: (String?) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Show to-dos from") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                (listOf<String?>(null) + lists).forEach { list ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium)
+                            .selectable(selected = selected.equals(list, ignoreCase = true), role = Role.RadioButton) { onPick(list) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = selected.equals(list, ignoreCase = true), onClick = null)
+                        Spacer(Modifier.width(12.dp))
+                        Text(list ?: "All lists", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

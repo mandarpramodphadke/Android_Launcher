@@ -24,9 +24,9 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * Upgrading from the shipped v1 database: a real v1 file is built from the exported 1.json, filled
- * with data, then opened through the production Room builder. Room runs Migration1To2 and then
- * validates every table against the v2 schema, so wrong migration SQL fails this test.
+ * Upgrading from shipped databases: a real v1 (or v2) file is built from the exported 1.json (2.json),
+ * filled with data, then opened through the production Room builder. Room runs the migrations and
+ * then validates every table against the current schema, so wrong migration SQL fails this test.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [36], application = Application::class)
@@ -38,6 +38,76 @@ class DatabaseMigrationTest {
     @After
     fun tearDown() {
         context.deleteDatabase(dbFile.name)
+    }
+
+    /** Creates every table and index of the exported schema [version] in a fresh file. */
+    private fun createTables(db: SQLiteDatabase, version: Int) {
+        val schema = Json.parseToJsonElement(File(SCHEMA_DIR, "$version.json").readText()).jsonObject["database"]!!.jsonObject
+        schema["entities"]!!.jsonArray.forEach { entity ->
+            val e = entity.jsonObject
+            val table = e["tableName"]!!.jsonPrimitive.content
+            db.execSQL(e["createSql"]!!.jsonPrimitive.content.replace("\${TABLE_NAME}", table))
+            e["indices"]?.jsonArray?.forEach { index ->
+                db.execSQL(index.jsonObject["createSql"]!!.jsonPrimitive.content.replace("\${TABLE_NAME}", table))
+            }
+        }
+        schema["setupQueries"]!!.jsonArray.forEach { db.execSQL(it.jsonPrimitive.content) }
+    }
+
+    /** What a 1.2/1.3 install contains: a folder on page 2, an app and a widget on page 1. */
+    private fun createVersion2Database() {
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createTables(db, 2)
+            db.execSQL(
+                "INSERT INTO custom_folders (id, name, description, accentColorKey, sortOrder, packageNames, dockPosition, createdAt, updatedAt) " +
+                    "VALUES (7, 'Work', 'Apps for my job', 'teal', 0, '[\"com.slack\"]', 1, 1, 1)",
+            )
+            db.execSQL(
+                "INSERT INTO home_items (type, pageIndex, gridX, gridY, spanX, spanY, componentKey, folderId, appWidgetId, widgetProvider, createdAt) " +
+                    "VALUES ('FOLDER', 1, 0, 0, 1, 1, NULL, 7, NULL, NULL, 1), " +
+                    "('APP', 0, 1, 2, 1, 1, 'com.spotify/.Main', NULL, NULL, NULL, 1), " +
+                    "('WIDGET', 0, 0, 3, 4, 2, NULL, NULL, 42, 'com.weather/.Widget', 1)",
+            )
+            db.version = 2
+        }
+    }
+
+    @Test
+    fun migratesVersion2ToVersion3KeepingFoldersAndHomePages() = runTest {
+        createVersion2Database()
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
+            .addMigrations(*AppDatabase.MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val work = db.folderDao().get(7)!!
+            assertThat(work.name).isEqualTo("Work")
+            assertThat(work.packageNames).containsExactly("com.slack")
+            assertThat(work.dockPosition).isEqualTo(1)
+            assertThat(work.smartRule).isNull()
+            val items = db.homeItemDao().all()
+            assertThat(items.map { it.type }).containsExactly("FOLDER", "APP", "WIDGET")
+            assertThat(items.single { it.type == "WIDGET" }.appWidgetId).isEqualTo(42)
+            assertThat(items.all { it.launcherWidget == null }).isTrue()
+
+            // The new columns are usable: a smart folder and a launcher widget.
+            val smartId = db.folderDao().insert(
+                CustomFolderEntity(name = "New apps", description = null, accentColorKey = "sky", sortOrder = 1, packageNames = emptyList(), createdAt = 2, updatedAt = 2, smartRule = "installed:14"),
+            )
+            assertThat(db.folderDao().get(smartId)?.smartRule).isEqualTo("installed:14")
+            db.homeItemDao().insert(
+                HomeItemEntity(type = HomeItemEntity.TYPE_LAUNCHER_WIDGET, pageIndex = 1, gridX = 0, gridY = 2, spanX = 4, spanY = 2, launcherWidget = "todo_list:Work", createdAt = 2),
+            )
+            assertThat(db.homeItemDao().onPage(1).mapNotNull { it.launcherWidget }).containsExactly("todo_list:Work")
+
+            // Apps dropped onto each other: both leave the page and the folder takes the cell.
+            val app = db.homeItemDao().all().single { it.type == "APP" }
+            db.homeItemDao().replaceWithItem(listOf(app.id), HomeItemEntity(type = HomeItemEntity.TYPE_FOLDER, pageIndex = 0, gridX = 1, gridY = 2, folderId = smartId, createdAt = 3))
+            assertThat(db.homeItemDao().onPage(0).map { it.type }).containsExactly("FOLDER", "WIDGET")
+        } finally {
+            db.close()
+        }
     }
 
     private fun createVersion1Database() {

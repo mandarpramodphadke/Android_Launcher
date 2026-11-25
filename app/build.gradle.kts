@@ -69,8 +69,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 5
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -109,6 +109,11 @@ android {
     // full: installed directly from an APK, every feature. play: Google Play policy-safe build with
     // its own application ID, no broad storage permissions (file tools search folders the user picks)
     // and no cloud sign-in or backup. Shared code checks the BuildConfig flags below.
+    //
+    // New features are tried in the full app first (CLAUDE.md): each has a flag that is true in
+    // full and false in play until it has been tested on a phone and checked against Play policy.
+    // 1.4: TODO_WIDGETS (launcher-drawn to-do widgets), HOME_DRAG_AND_DROP (drag apps to move them
+    // or make folders), SMART_FOLDERS (folders that fill themselves).
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -116,6 +121,9 @@ android {
             buildConfigField("boolean", "PLAY_BUILD", "false")
             buildConfigField("boolean", "BROAD_FILE_ACCESS", "true")
             buildConfigField("boolean", "CLOUD_FEATURES", "true")
+            buildConfigField("boolean", "TODO_WIDGETS", "true")
+            buildConfigField("boolean", "HOME_DRAG_AND_DROP", "true")
+            buildConfigField("boolean", "SMART_FOLDERS", "true")
         }
         create("play") {
             dimension = "distribution"
@@ -123,6 +131,10 @@ android {
             buildConfigField("boolean", "PLAY_BUILD", "true")
             buildConfigField("boolean", "BROAD_FILE_ACCESS", "false")
             buildConfigField("boolean", "CLOUD_FEATURES", "false")
+            // Not yet released on Google Play (see the comment above).
+            buildConfigField("boolean", "TODO_WIDGETS", "false")
+            buildConfigField("boolean", "HOME_DRAG_AND_DROP", "false")
+            buildConfigField("boolean", "SMART_FOLDERS", "false")
         }
     }
 

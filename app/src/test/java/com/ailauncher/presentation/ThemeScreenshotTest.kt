@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -58,6 +59,13 @@ import com.ailauncher.domain.model.DrawerLayout
 import com.ailauncher.domain.model.DrawerTab
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.FolderAccent
+import com.ailauncher.domain.model.FolderRule
+import com.ailauncher.domain.model.LauncherWidgetConfig
+import com.ailauncher.domain.model.LauncherWidgetKind
+import com.ailauncher.domain.model.TodoItem
+import com.ailauncher.domain.model.TodoPriority
+import com.ailauncher.presentation.folders.FolderEditorContent
+import com.ailauncher.presentation.home.LauncherWidgetData
 import com.ailauncher.domain.model.GridPosition
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
@@ -162,6 +170,22 @@ class ThemeScreenshotTest {
             add(Shot("chat-material-you-unused-apps") { Chat(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), UnusedAppsConversation) })
             add(Shot("chat-classic-light-day-plan") { Chat(settings(AppTheme.CLASSIC, ThemeMode.LIGHT), DayPlanConversation) })
 
+            // 1.4: the launcher's to-do widgets and smart folders.
+            add(Shot("home-widgets-material-you") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, items = WidgetHomeItems, widgets = true) })
+            add(Shot("home-widgets-amoled") { Home(settings(AppTheme.AMOLED), DarkWallpaper, WallpaperTint.Light, items = WidgetHomeItems, widgets = true) })
+            add(Shot("home-widgets-colourful-light-page-2") {
+                Home(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), LightWallpaper, WallpaperTint.Dark, page = 1, items = WidgetHomeItems, widgets = true)
+            })
+            add(Shot("home-widgets-neon-page-2") { Home(settings(AppTheme.NEON), DarkWallpaper, WallpaperTint.Light, page = 1, items = WidgetHomeItems, widgets = true) })
+            add(Shot("drawer-smart-folders") {
+                Drawer(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), DrawerTab.FOLDERS, DrawerLayout.GRID, folders = AllFolders)
+            })
+            add(Shot("folder-editor-smart-dark") { FolderEditor(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), NewAppsFolder) })
+            add(Shot("folder-editor-category-light") {
+                FolderEditor(settings(AppTheme.CLASSIC, ThemeMode.LIGHT), NewAppsFolder.copy(name = "Games", rule = FolderRule.Category(AppCategory.GAMES)))
+            })
+            add(Shot("folder-editor-new-light") { FolderEditor(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), null) })
+
             add(Shot("settings-theme-picker-light") { Picker(settings(AppTheme.COLORFUL, ThemeMode.LIGHT)) })
             add(Shot("settings-theme-picker-dark") { Picker(settings(AppTheme.NEON, ThemeMode.DARK)) })
         }
@@ -185,7 +209,14 @@ class ThemeScreenshotTest {
     // ------------------------------------------------------------------------------------ scenes
 
     @Composable
-    private fun Home(settings: LauncherSettings, wallpaper: Brush, tint: WallpaperTint, page: Int = 0, items: List<HomeItem> = HomeItems) {
+    private fun Home(
+        settings: LauncherSettings,
+        wallpaper: Brush,
+        tint: WallpaperTint,
+        page: Int = 0,
+        items: List<HomeItem> = HomeItems,
+        widgets: Boolean = false,
+    ) {
         AiLauncherTheme(settings) {
             Box(Modifier.fillMaxSize().background(wallpaper)) {
                 HomeContent(
@@ -198,7 +229,7 @@ class ThemeScreenshotTest {
                         apps = Apps.associateBy { it.componentKey },
                         homeItems = items,
                         pageCount = 2,
-                        folders = mapOf(WorkFolder.id to WorkFolder, TravelFolder.id to TravelFolder),
+                        folders = AllFolders.associateBy { it.id },
                         pills = listOf(SmartPill("otp", "Bank", SmartExtraction.Otp("482913"), Now.toInstant().toEpochMilli())),
                         badges = mapOf(Apps[1].packageName to 3),
                         glance = Glance(
@@ -207,6 +238,7 @@ class ThemeScreenshotTest {
                             nextBlock = PlannerBlock(1, Now.toLocalDate(), 10 * 60, 90, "Deep work", null, false),
                         ),
                         settings = settings,
+                        widgetData = if (widgets) WidgetData else LauncherWidgetData(),
                     ),
                     tint = tint,
                     style = LocalLauncherStyle.current,
@@ -215,14 +247,34 @@ class ThemeScreenshotTest {
                     clip = null,
                     widgetHost = null,
                     editingWidgetId = null,
-                    callbacks = HomeCallbacks(),
+                    callbacks = HomeCallbacks(dragEnabled = true),
                 )
             }
         }
     }
 
+    /** The folder editor sheet's content, as it opens (smart mode for a smart folder). */
     @Composable
-    private fun Drawer(settings: LauncherSettings, tab: DrawerTab, layout: DrawerLayout) {
+    private fun FolderEditor(settings: LauncherSettings, folder: CustomFolder?) {
+        AiLauncherTheme(settings) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxSize()) {
+                Box(Modifier.statusBarsPadding().padding(top = 16.dp)) {
+                    FolderEditorContent(
+                        existing = folder,
+                        allApps = Apps.sortedBy { it.label },
+                        initialSelection = folder?.packageNames ?: listOf(Apps[5].packageName, Apps[6].packageName),
+                        onSave = { _, _, _, _, _ -> },
+                        onDismiss = {},
+                        smartFolders = true,
+                        previewCount = { rule -> if (rule == FolderRule.LauncherTools) 8 else 3 },
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun Drawer(settings: LauncherSettings, tab: DrawerTab, layout: DrawerLayout, folders: List<CustomFolder> = listOf(WorkFolder, TravelFolder)) {
         AiLauncherTheme(settings) {
             Box(Modifier.fillMaxSize().background(DarkWallpaper)) {
                 DrawerContent(
@@ -239,7 +291,7 @@ class ThemeScreenshotTest {
                         notSortedByAi = 0,
                         progress = CategorizationProgress(running = false, categorized = 0, total = 0),
                         modelReady = true,
-                        folders = listOf(WorkFolder, TravelFolder),
+                        folders = folders,
                         appsByPackage = Apps.groupBy { it.packageName },
                         suggestions = Apps.take(5),
                         badges = mapOf(Apps[1].packageName to 2),
@@ -378,6 +430,68 @@ class ThemeScreenshotTest {
             dockPosition = null,
         )
 
+        val NewAppsFolder = CustomFolder(
+            id = 3,
+            name = "New apps",
+            description = null,
+            accent = FolderAccent.SKY,
+            sortOrder = 2,
+            packageNames = listOf("com.example.duolingo", "com.example.notion", "com.example.chess"),
+            dockPosition = null,
+            rule = FolderRule.RecentlyInstalled(14),
+        )
+        val ToolsFolder = CustomFolder(
+            id = 4,
+            name = "AI Launcher",
+            description = null,
+            accent = FolderAccent.VIOLET,
+            sortOrder = 3,
+            packageNames = emptyList(),
+            dockPosition = null,
+            rule = FolderRule.LauncherTools,
+        )
+        val UnusedFolder = CustomFolder(
+            id = 5,
+            name = "Not used lately",
+            description = "Clean these up",
+            accent = FolderAccent.ROSE,
+            sortOrder = 4,
+            packageNames = listOf("com.example.reddit", "com.example.amazon", "com.example.news", "com.example.fit"),
+            dockPosition = null,
+            rule = FolderRule.NotUsedFor(30),
+        )
+        val AllFolders = listOf(WorkFolder, TravelFolder, NewAppsFolder, ToolsFolder, UnusedFolder)
+
+        private fun todo(id: Long, title: String, list: String = TodoItem.DEFAULT_LIST, priority: TodoPriority = TodoPriority.MEDIUM, dueHour: Int? = null, dueDays: Long = 0, done: Boolean = false) =
+            TodoItem(
+                id = id,
+                title = title,
+                notes = null,
+                listName = list,
+                priority = priority,
+                dueAtMillis = dueHour?.let { Now.toLocalDate().plusDays(dueDays).atTime(it, 0).atZone(Now.zone).toInstant().toEpochMilli() },
+                completed = done,
+                createdAt = id,
+                completedAt = if (done) Now.minusMinutes(2).toInstant().toEpochMilli() else null,
+            )
+
+        val WidgetData = LauncherWidgetData(
+            todos = listOf(
+                todo(1, "Send the Q4 report", list = "Work", priority = TodoPriority.HIGH, dueHour = 8),
+                todo(2, "Call the electrician", dueHour = 18),
+                todo(3, "Book flight to Pune", priority = TodoPriority.HIGH),
+                todo(4, "Renew car insurance", dueHour = 10, dueDays = 1),
+                todo(5, "Milk and eggs", list = "Shopping"),
+                todo(6, "Rice, 5 kg", list = "Shopping"),
+                todo(7, "Water the plants", done = true),
+                todo(8, "Plan the weekend", priority = TodoPriority.LOW, dueHour = 12, dueDays = 4),
+            ),
+            todayBlocks = listOf(
+                PlannerBlock(1, Now.toLocalDate(), 9 * 60, 90, "Deep work", null, false),
+                PlannerBlock(2, Now.toLocalDate(), 13 * 60, 60, "Gym", null, false),
+            ),
+        )
+
         val Apps = listOf(
             app("Phone", AppCategory.COMMUNICATION, dock = 0),
             app("Messages", AppCategory.COMMUNICATION, dock = 1),
@@ -403,6 +517,20 @@ class ThemeScreenshotTest {
             app("Files", AppCategory.UTILITIES),
             app("Settings", AppCategory.UTILITIES),
             app("Notion", null),
+        )
+
+        /** Page 1: smart folders, a to-do list and the quick-add bar; page 2: Today and a Shopping list. */
+        val WidgetHomeItems = listOf(
+            HomeItem(1, GridPosition(page = 0, x = 0, y = 2), HomeItemContent.Folder(NewAppsFolder.id)),
+            HomeItem(2, GridPosition(page = 0, x = 1, y = 2), HomeItemContent.Folder(ToolsFolder.id)),
+            HomeItem(3, GridPosition(page = 0, x = 2, y = 2), HomeItemContent.Folder(WorkFolder.id)),
+            HomeItem(4, GridPosition(page = 0, x = 3, y = 2), HomeItemContent.App(Apps[8].componentKey)),
+            HomeItem(5, GridPosition(page = 0, x = 0, y = 3, spanX = 4, spanY = 2), HomeItemContent.LauncherWidget(LauncherWidgetConfig(LauncherWidgetKind.TODO_LIST))),
+            HomeItem(6, GridPosition(page = 1, x = 0, y = 0, spanX = 4, spanY = 2), HomeItemContent.LauncherWidget(LauncherWidgetConfig(LauncherWidgetKind.TODAY))),
+            HomeItem(7, GridPosition(page = 1, x = 0, y = 2, spanX = 2, spanY = 2), HomeItemContent.LauncherWidget(LauncherWidgetConfig(LauncherWidgetKind.TODO_LIST, "Shopping"))),
+            HomeItem(8, GridPosition(page = 1, x = 2, y = 2), HomeItemContent.Folder(UnusedFolder.id)),
+            HomeItem(9, GridPosition(page = 1, x = 3, y = 2), HomeItemContent.App(Apps[16].componentKey)),
+            HomeItem(10, GridPosition(page = 1, x = 0, y = 4, spanX = 4, spanY = 1), HomeItemContent.LauncherWidget(LauncherWidgetConfig(LauncherWidgetKind.QUICK_ADD))),
         )
 
         val StoreHomeItems = buildList {

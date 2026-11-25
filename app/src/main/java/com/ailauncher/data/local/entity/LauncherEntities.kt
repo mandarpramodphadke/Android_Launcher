@@ -4,14 +4,14 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/** An app, custom folder or AppWidget on a home screen page (database v2). */
+/** An app, custom folder, AppWidget or launcher widget on a home screen page (database v2, v3). */
 @Entity(
     tableName = "home_items",
     indices = [Index("pageIndex"), Index("componentKey"), Index("folderId"), Index("appWidgetId")],
 )
 data class HomeItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    /** APP, FOLDER or WIDGET. */
+    /** APP, FOLDER, WIDGET or LAUNCHER_WIDGET. */
     val type: String,
     val pageIndex: Int,
     val gridX: Int,
@@ -24,11 +24,14 @@ data class HomeItemEntity(
     /** Flattened provider ComponentName of a widget. */
     val widgetProvider: String? = null,
     val createdAt: Long,
+    /** v3: an encoded [com.ailauncher.domain.model.LauncherWidgetConfig] ("todo_list:Work"). */
+    val launcherWidget: String? = null,
 ) {
     companion object {
         const val TYPE_APP = "APP"
         const val TYPE_FOLDER = "FOLDER"
         const val TYPE_WIDGET = "WIDGET"
+        const val TYPE_LAUNCHER_WIDGET = "LAUNCHER_WIDGET"
     }
 }
 
@@ -46,6 +49,8 @@ data class CustomFolderEntity(
     val dockPosition: Int? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    /** v3: an encoded [com.ailauncher.domain.model.FolderRule]; set for smart folders. */
+    val smartRule: String? = null,
 )
 
 @Entity(tableName = "todo_items", indices = [Index("listName"), Index("isCompleted"), Index("dueTimestampMillis")])

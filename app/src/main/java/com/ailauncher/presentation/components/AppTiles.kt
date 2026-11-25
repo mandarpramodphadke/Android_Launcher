@@ -1,5 +1,6 @@
 package com.ailauncher.presentation.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,10 +20,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -105,22 +110,36 @@ fun AppGridTile(
     labelColor: Color = MaterialTheme.colorScheme.onSurface,
     labelShadow: Shadow? = null,
     badgeCount: Int = 0,
+    /** Set on home pages: long-press and drag moves the tile (see [rememberTileGestures]). */
+    drag: TileDragCallbacks? = null,
 ) {
     val haptics = LocalHapticFeedback.current
     val bounds = remember { IconBounds() }
+    var held by remember { mutableStateOf(false) }
+    val lift by animateFloatAsState(if (held) 1.08f else 1f, label = "tile-lift")
+    val gestures = if (drag != null) {
+        val state = rememberTileGestureState(onTap = { onClick(bounds.rect) }, onLongPress = onLongClick, drag = drag, onHeld = { held = it })
+        Modifier.tileGestures(state, tapLabel = "Open ${app.label}", longPressLabel = "App options")
+    } else {
+        Modifier.combinedClickable(
+            role = Role.Button,
+            onClickLabel = "Open ${app.label}",
+            onLongClickLabel = "App options",
+            onClick = { onClick(bounds.rect) },
+            onLongClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onLongClick()
+            },
+        )
+    }
     Column(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = lift
+                scaleY = lift
+            }
             .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(
-                role = Role.Button,
-                onClickLabel = "Open ${app.label}",
-                onLongClickLabel = "App options",
-                onClick = { onClick(bounds.rect) },
-                onLongClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
-                },
-            )
+            .then(gestures)
             .padding(vertical = 6.dp, horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

@@ -22,6 +22,45 @@ sealed interface HomeItemContent {
 
     /** A bound AppWidget; [provider] is the flattened provider ComponentName (kept for restore). */
     data class Widget(val appWidgetId: Int, val provider: String) : HomeItemContent
+
+    /** A widget the launcher draws itself (to-do list, Today, add a to-do). */
+    data class LauncherWidget(val config: LauncherWidgetConfig) : HomeItemContent
+}
+
+/** The launcher's own widgets, with their default and minimum sizes in cells. */
+enum class LauncherWidgetKind(
+    val key: String,
+    val label: String,
+    val description: String,
+    val defaultSpanX: Int,
+    val defaultSpanY: Int,
+    val minSpanX: Int,
+    val minSpanY: Int,
+) {
+    TODO_LIST("todo_list", "To-do list", "Your open to-dos. Tick them off or add new ones.", 4, 2, 2, 2),
+    TODAY("today", "Today", "What's on your plan now and next, and what's due today.", 4, 2, 2, 1),
+    QUICK_ADD("todo_add", "Add a to-do", "A bar that adds a to-do with one tap.", 4, 1, 2, 1),
+    ;
+
+    companion object {
+        fun fromKey(key: String?): LauncherWidgetKind? = entries.firstOrNull { it.key == key }
+    }
+}
+
+/**
+ * Settings of one launcher widget. [listName] limits a to-do widget to one list (null = all
+ * lists). Stored as "kind" or "kind:list name" in `home_items.launcherWidget`.
+ */
+data class LauncherWidgetConfig(val kind: LauncherWidgetKind, val listName: String? = null) {
+    fun encode(): String = listName?.takeIf { it.isNotBlank() }?.let { "${kind.key}:$it" } ?: kind.key
+
+    companion object {
+        fun decode(value: String?): LauncherWidgetConfig? {
+            if (value.isNullOrBlank()) return null
+            val kind = LauncherWidgetKind.fromKey(value.substringBefore(':')) ?: return null
+            return LauncherWidgetConfig(kind, value.substringAfter(':', "").takeIf { it.isNotBlank() })
+        }
+    }
 }
 
 /** Something placed on a home screen page. */
@@ -45,6 +84,9 @@ enum class FolderAccent {
 /**
  * A user-made folder: a name, an optional purpose ("apps for my job"), and an ordered list of
  * packages. It can be opened from the drawer, pinned on a home page or placed in the dock.
+ *
+ * A smart folder has a [rule] and fills itself: its [packageNames] are worked out from the rule
+ * (new apps, a category, apps not used lately…) and can't be edited by hand.
  */
 data class CustomFolder(
     val id: Long,
@@ -55,8 +97,13 @@ data class CustomFolder(
     val packageNames: List<String>,
     /** Slot in the 5-slot dock shared with pinned apps, or null. */
     val dockPosition: Int?,
+    val rule: FolderRule? = null,
 ) {
     val isInDock: Boolean get() = dockPosition != null
+    val isSmart: Boolean get() = rule != null
+
+    /** The launcher features a "launcher tools" folder holds (empty for every other folder). */
+    val tools: List<LauncherTool> get() = if (rule == FolderRule.LauncherTools) LauncherTool.entries else emptyList()
 }
 
 /** A slot of the persistent dock: an app or a folder. */

@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.4: to-do widgets and smart folders](#whats-new-in-14-to-do-widgets-and-smart-folders)
 1. [What's new in 1.3: Google Play version](#whats-new-in-13-google-play-version)
 1. [What's new in 1.2](#whats-new-in-12)
 1. [Features](#features)
@@ -27,6 +28,47 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.4: to-do widgets and smart folders
+
+In the **full** version first; the Google Play version gets them after they have been tried on a
+phone (see "How new features reach the Play version" in [docs/PLAY_RELEASE.md](docs/PLAY_RELEASE.md)).
+Each is behind a flag in `app/build.gradle.kts`: `TODO_WIDGETS`, `HOME_DRAG_AND_DROP` and
+`SMART_FOLDERS`.
+
+- **To-do widgets**, drawn by the launcher itself in your theme's colours. Long-press the wallpaper
+  ▸ *Widgets* ▸ *AI Launcher*:
+  - **To-do list**: overdue first, then due today, then by priority. Tick items off (they stay
+    struck through for ten minutes, so a mis-tap is easy to undo), tap one to edit it, or tap +.
+    The tune button (long-press the widget) limits it to one list, e.g. *Shopping*.
+  - **Today**: the block of your day plan that is on now (or next), and what is due today.
+  - **Add a to-do**: a bar that opens the to-do editor in one tap.
+
+  They resize and move like any widget, and update the moment a to-do changes (in the planner, by
+  the assistant, or on another widget).
+- **Drag and drop on the home screen**: long-press an app or folder and move your finger.
+  - Drop it on an empty cell to move it, or at the screen edge to go to the next page (past the
+    last page, a new page is added).
+  - Drop an app on another app to make a folder: it's named after their shared category
+    ("Social") and opens so you can rename it. Drop an app on a folder to put it inside.
+  - Drop it on the dock to pin it there.
+  - Lift your finger without moving to get the usual menu.
+- **Smart folders** that fill themselves. In the folder editor, choose *Fills itself*:
+  - **New apps**: installed in the last 7, 14 or 30 days
+  - **Not used lately**: not opened for 30, 60 or 90 days (long-press an app to uninstall it)
+  - **Most used**: your 8, 12 or 16 most opened apps of the last four weeks
+  - **By category**: every app in one of the drawer's categories (Games, Social, …)
+  - **AI Launcher tools**: assistant, *My day*, planner, to-dos, *Catch up*, Private Space,
+    widgets and settings, as one folder
+
+  The usage rules use Android's Usage access when you allow it (it stays on the phone), and
+  otherwise the launches made from AI Launcher. Smart folders show a small sparkle badge, never
+  include Private Space apps, and can be turned back into a regular folder (*Pick apps myself*).
+
+The database moves to version 3 (`Migration2To3` adds two nullable columns), so nothing you have
+set up changes.
 
 ---
 
@@ -111,9 +153,13 @@ An incremental update of the 1.1 code base: every existing feature, tool contrac
     and search. `LauncherAppWidgetHost` handles `ACTION_APPWIDGET_BIND`, configuration activities
     and `startListening`/`stopListening`; long-press a widget for resize handles, page moves and
     removal
-- **Custom folders**: create from the drawer's *Folders* tab, the home menu or an app's long-press
-  menu (name, description, accent colour, searchable multi-select app list). Open a folder to see
-  its purpose and apps, add/remove apps, edit, pin to the dock, add to a home page or delete it.
+- **Custom folders**: create from the drawer's *Folders* tab, the home menu, an app's long-press
+  menu or (full version) by dropping one app onto another (name, description, accent colour,
+  searchable multi-select app list). Open a folder to see its purpose and apps, add/remove apps,
+  edit, pin to the dock, add to a home page or delete it. Smart folders fill themselves (new apps,
+  not used lately, most used, a category, or the launcher's own tools).
+- **To-do widgets** (full version): a to-do list, *Today* and an *Add a to-do* bar, drawn by the
+  launcher and listed first in the widget picker.
 - **Readable on any wallpaper**: text colour follows `WallpaperColors` (or a Light/Dark override)
   and is never relied on alone:
   - every word on the wallpaper carries a halo (dark text) or drop shadow (light text)
@@ -540,6 +586,11 @@ The JVM unit tests cover:
   and argument grounding (including verbatim real-model outputs), quick commands, date-range and
   day parsing, the notification extractor, clipboard analysis, app suggestions, the home grid
   planner, the agenda builder, free slots and the model catalog
+- 1.4: the Room 2 → 3 migration (from the exported v2 schema, with folders, apps and widgets on
+  the pages), smart-folder rules and their storage, the drop planner, to-do widget ordering and
+  the *Today* overview, and `HomeDragAndDropTest`, which drives real touch input through the home
+  screen: long-press and drag onto an app (new folder), a folder, a smart folder and an empty
+  cell; long-press and release for the menu; tap to open; and the to-do widget's buttons
 
 **Screenshot test.** `ThemeScreenshotTest` uses Robolectric native graphics to render the home
 screen, drawer and theme picker in every theme. The variants are minimal mode, light/dark/banded
@@ -575,7 +626,18 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 
 ## Verification performed
 
-All of the following was run while building this project (1.3.0):
+1.4.0 (full version):
+
+- `assembleFullRelease` builds a **23.7 MB APK**, version 1.4.0 (5), signed with the same key as
+  every earlier APK (so it installs over 1.3), 16 KB aligned, with exactly the same permissions as
+  1.3.0. Zero Kotlin compiler warnings; `lintFullDebug` and `lintPlayDebug` are clean except for
+  `OldTargetApi`.
+- **143 JVM unit tests pass on both versions** (1 JNI host test skipped unless configured),
+  including the Room 2 → 3 migration, the drag-and-drop touch tests and 39 screenshots (8 new:
+  the to-do widgets in four themes, smart folders in the drawer, and the folder editor).
+- Not verified here: dragging and the widgets on a physical phone (no device on this machine).
+
+All of the following was run while building 1.3.0:
 
 - `bundlePlayRelease` (**41 MB app bundle**; Google Play delivers an APK of about 20 MB to arm64
   phones) and `assembleFullRelease` (R8 + resource shrinking, **23.6 MB APK**) succeed with **zero

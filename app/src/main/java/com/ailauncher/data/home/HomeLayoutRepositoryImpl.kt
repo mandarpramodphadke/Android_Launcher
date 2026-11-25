@@ -9,6 +9,7 @@ import com.ailauncher.domain.home.HomeGridPlanner
 import com.ailauncher.domain.model.GridPosition
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.LauncherWidgetConfig
 import com.ailauncher.domain.repository.HomeLayoutRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -72,6 +73,43 @@ class HomeLayoutRepositoryImpl @Inject constructor(
                 createdAt = now(),
             )
         }
+    }
+
+    override suspend fun addLauncherWidget(
+        config: LauncherWidgetConfig,
+        spanX: Int,
+        spanY: Int,
+        preferredPage: Int,
+        spec: GridSpec,
+    ): GridPosition? = mutex.withLock {
+        place(spanX, spanY, preferredPage, spec) { position ->
+            HomeItemEntity(
+                type = HomeItemEntity.TYPE_LAUNCHER_WIDGET,
+                pageIndex = position.page,
+                gridX = position.x,
+                gridY = position.y,
+                spanX = position.spanX,
+                spanY = position.spanY,
+                launcherWidget = config.encode(),
+                createdAt = now(),
+            )
+        }
+    }
+
+    override suspend fun setLauncherWidgetConfig(itemId: Long, config: LauncherWidgetConfig) = mutex.withLock {
+        val row = dao.get(itemId)?.takeIf { it.type == HomeItemEntity.TYPE_LAUNCHER_WIDGET } ?: return@withLock
+        dao.update(row.copy(launcherWidget = config.encode()))
+    }
+
+    override suspend fun replaceWithFolder(removeItemIds: List<Long>, folderId: Long, at: GridPosition, spec: GridSpec): Boolean = mutex.withLock {
+        val remaining = dao.all().mapNotNull { it.toDomain() }.filter { it.id !in removeItemIds }
+        val cell = at.copy(spanX = 1, spanY = 1)
+        if (!HomeGridPlanner.isFree(remaining, cell, spec)) return@withLock false
+        dao.replaceWithItem(
+            removeItemIds,
+            HomeItemEntity(type = HomeItemEntity.TYPE_FOLDER, pageIndex = cell.page, gridX = cell.x, gridY = cell.y, folderId = folderId, createdAt = now()),
+        )
+        true
     }
 
     /** Finds room (adding a page if every existing one is full) and inserts the row. */
@@ -157,6 +195,7 @@ class HomeLayoutRepositoryImpl @Inject constructor(
             HomeItemEntity.TYPE_APP -> componentKey?.let { HomeItemContent.App(it) }
             HomeItemEntity.TYPE_FOLDER -> folderId?.let { HomeItemContent.Folder(it) }
             HomeItemEntity.TYPE_WIDGET -> appWidgetId?.let { HomeItemContent.Widget(it, widgetProvider.orEmpty()) }
+            HomeItemEntity.TYPE_LAUNCHER_WIDGET -> LauncherWidgetConfig.decode(launcherWidget)?.let { HomeItemContent.LauncherWidget(it) }
             else -> null
         } ?: return null
         return HomeItem(id, GridPosition(pageIndex, gridX, gridY, spanX, spanY), content)

@@ -43,7 +43,7 @@ import com.ailauncher.data.local.entity.TodoItemEntity
         RecentFileAccessEntity::class,
         NotificationDigestEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -62,7 +62,7 @@ abstract class AppDatabase : RoomDatabase() {
         /** Also referenced by res/xml backup rules. */
         const val NAME = "ai_launcher.db"
 
-        val MIGRATIONS: Array<Migration> = arrayOf(Migration1To2)
+        val MIGRATIONS: Array<Migration> = arrayOf(Migration1To2, Migration2To3)
     }
 }
 
@@ -132,5 +132,16 @@ object Migration1To2 : Migration(1, 2) {
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_digest_postedAt` ON `notification_digest` (`postedAt`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_digest_packageName` ON `notification_digest` (`packageName`)")
+    }
+}
+
+/**
+ * v2 → v3 (launcher 1.4): launcher-drawn widgets on home pages (`home_items.launcherWidget`) and
+ * smart folders (`custom_folders.smartRule`). Two nullable columns, so every row stays as it was.
+ */
+object Migration2To3 : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `home_items` ADD COLUMN `launcherWidget` TEXT")
+        db.execSQL("ALTER TABLE `custom_folders` ADD COLUMN `smartRule` TEXT")
     }
 }

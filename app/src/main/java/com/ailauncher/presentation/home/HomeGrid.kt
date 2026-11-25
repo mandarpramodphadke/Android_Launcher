@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -37,12 +38,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ailauncher.data.widgets.LauncherAppWidgetHostView
@@ -51,8 +56,12 @@ import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.LauncherWidgetConfig
+import com.ailauncher.domain.model.LauncherWidgetKind
+import com.ailauncher.domain.home.DropAction
 import com.ailauncher.presentation.components.AppGridTile
 import com.ailauncher.presentation.components.FolderTile
+import com.ailauncher.presentation.components.TileDragCallbacks
 import com.ailauncher.presentation.theme.WallpaperTint
 import kotlin.math.roundToInt
 
@@ -66,7 +75,25 @@ class HomeGridActions(
     val onOpenFolder: (CustomFolder) -> Unit,
     val onFolderLongPress: (HomeItem, CustomFolder) -> Unit,
     val onWidgetLongPress: (HomeItem) -> Unit,
+    /** Options of a launcher widget (which to-do list it shows). */
+    val onConfigureWidget: (HomeItem) -> Unit = {},
 )
+
+/** Dragging apps and folders on a page (null when drag and drop is off). */
+class HomeGridDrag(
+    val state: HomeDragState,
+    val onStart: (item: HomeItem, grab: Offset, tileSize: IntSize, pointer: Offset) -> Unit,
+    val onMove: (pointer: Offset) -> Unit,
+    val onEnd: () -> Unit,
+    val onCancel: () -> Unit,
+) {
+    fun callbacksFor(item: HomeItem) = TileDragCallbacks(
+        onDragStart = { grab, size, pointer -> onStart(item, grab, size, pointer) },
+        onDrag = onMove,
+        onDragEnd = onEnd,
+        onDragCancel = onCancel,
+    )
+}
 
 /**
  * One page's items on an absolute cell grid: apps and folders take one cell; widgets span several.
@@ -91,16 +118,29 @@ fun HomeGrid(
     onDoneEditing: () -> Unit,
     pageCount: Int,
     modifier: Modifier = Modifier,
+    page: Int = 0,
+    drag: HomeGridDrag? = null,
+    launcherWidget: @Composable (HomeItem, LauncherWidgetConfig) -> Unit = { _, _ -> },
 ) {
-    Box(modifier.fillMaxSize()) {
+    val dragState = drag?.state
+    Box(
+        modifier
+            .fillMaxSize()
+            .then(if (dragState != null) Modifier.onGloballyPositioned { dragState.grids[page] = it to metrics } else Modifier),
+    ) {
+        (dragState?.target as? DropTarget.Cell)?.takeIf { it.page == page && dragState.isDragging }?.let { target ->
+            DropHighlight(target, metrics, firstRow, tint)
+        }
         items.forEach { item ->
             val p = item.position
             if (p.y < firstRow || p.y + p.spanY > metrics.rows || p.x + p.spanX > metrics.columns) return@forEach
             key(item.id) {
+                val beingDragged = dragState?.item?.id == item.id
                 Box(
                     Modifier
                         .offset(x = metrics.cellWidth * p.x, y = metrics.cellHeight * (p.y - firstRow))
-                        .size(metrics.cellWidth * p.spanX, metrics.cellHeight * p.spanY),
+                        .size(metrics.cellWidth * p.spanX, metrics.cellHeight * p.spanY)
+                        .graphicsLayer { alpha = if (beingDragged) 0.3f else 1f },
                 ) {
                     when (val content = item.content) {
                         is HomeItemContent.App -> apps[content.componentKey]?.takeIf { !it.isHidden }?.let { app ->
@@ -112,6 +152,7 @@ fun HomeGrid(
                                 labelColor = tint.content,
                                 labelShadow = tint.shadow,
                                 badgeCount = badges(app),
+                                drag = drag?.callbacksFor(item),
                                 modifier = Modifier.align(Alignment.Center),
                             )
                         }
@@ -123,9 +164,11 @@ fun HomeGrid(
                                 onLongClick = { actions.onFolderLongPress(item, folder) },
                                 labelColor = tint.content,
                                 labelShadow = tint.shadow,
+                                drag = drag?.callbacksFor(item),
                                 modifier = Modifier.align(Alignment.Center),
                             )
                         }
+                        is HomeItemContent.LauncherWidget -> launcherWidget(item, content.config)
                         is HomeItemContent.Widget -> WidgetCell(
                             item = item,
                             appWidgetId = content.appWidgetId,
@@ -136,6 +179,7 @@ fun HomeGrid(
                         )
                     }
                     if (editingWidgetId == item.id) {
+                        val kind = (item.content as? HomeItemContent.LauncherWidget)?.config?.kind
                         WidgetEditOverlay(
                             item = item,
                             metrics = metrics,
@@ -144,6 +188,13 @@ fun HomeGrid(
                             onRemove = { onRemoveItem(item) },
                             onMove = { page -> onMoveItem(item, page) },
                             onDone = onDoneEditing,
+                            minSpanX = kind?.minSpanX ?: 1,
+                            minSpanY = kind?.minSpanY ?: 1,
+                            onSettings = if (kind == LauncherWidgetKind.TODO_LIST || kind == LauncherWidgetKind.QUICK_ADD) {
+                                { actions.onConfigureWidget(item) }
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
@@ -193,6 +244,9 @@ private fun WidgetEditOverlay(
     onRemove: () -> Unit,
     onMove: (Int) -> Unit,
     onDone: () -> Unit,
+    minSpanX: Int = 1,
+    minSpanY: Int = 1,
+    onSettings: (() -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     var dragX by remember { mutableFloatStateOf(0f) }
@@ -214,6 +268,9 @@ private fun WidgetEditOverlay(
                 }
             }
             FilledTonalIconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.Delete, "Remove widget", Modifier.size(18.dp)) }
+            if (onSettings != null) {
+                FilledTonalIconButton(onClick = onSettings, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.Tune, "Choose a list", Modifier.size(18.dp)) }
+            }
             FilledTonalIconButton(onClick = onDone, modifier = Modifier.size(32.dp)) { Icon(Icons.Rounded.Check, "Done", Modifier.size(18.dp)) }
             if (item.position.page < pageCount - 1) {
                 FilledTonalIconButton(onClick = { onMove(item.position.page + 1) }, modifier = Modifier.size(32.dp)) {
@@ -242,13 +299,51 @@ private fun WidgetEditOverlay(
                         change.consume()
                         dragX += amount.x
                         dragY += amount.y
-                        previewX = (item.position.spanX + (dragX / cellW).roundToInt()).coerceIn(1, metrics.columns - item.position.x)
-                        previewY = (item.position.spanY + (dragY / cellH).roundToInt()).coerceIn(1, metrics.rows - item.position.y)
+                        previewX = (item.position.spanX + (dragX / cellW).roundToInt())
+                            .coerceIn(minSpanX.coerceAtMost(metrics.columns - item.position.x), metrics.columns - item.position.x)
+                        previewY = (item.position.spanY + (dragY / cellH).roundToInt())
+                            .coerceIn(minSpanY.coerceAtMost(metrics.rows - item.position.y), metrics.rows - item.position.y)
                     }
                 },
             contentAlignment = Alignment.Center,
         ) {
             Icon(Icons.Rounded.OpenInFull, "Resize widget", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+/**
+ * Where a dragged item would land: an outlined cell for a move, a folder-shaped backdrop when it
+ * would make or join a folder, a red outline when it can't go there.
+ */
+@Composable
+private fun DropHighlight(target: DropTarget.Cell, metrics: HomeCellMetrics, firstRow: Int, tint: WallpaperTint) {
+    if (target.y < firstRow) return
+    val cell = Modifier
+        .offset(x = metrics.cellWidth * target.x, y = metrics.cellHeight * (target.y - firstRow))
+        .size(metrics.cellWidth, metrics.cellHeight)
+    Box(cell, contentAlignment = Alignment.Center) {
+        when (target.action) {
+            is DropAction.Move -> Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(6.dp)
+                    .background(tint.chip, RoundedCornerShape(18.dp))
+                    .border(1.5.dp, tint.content.copy(alpha = 0.6f), RoundedCornerShape(18.dp)),
+            )
+            is DropAction.CreateFolder, is DropAction.AddToFolder -> Box(
+                Modifier
+                    .offset(y = (-8).dp)
+                    .size(68.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f), RoundedCornerShape(22.dp)),
+            )
+            is DropAction.SmartFolder -> Box(
+                Modifier
+                    .offset(y = (-8).dp)
+                    .size(68.dp)
+                    .border(2.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(22.dp)),
+            )
+            DropAction.None -> Unit
         }
     }
 }

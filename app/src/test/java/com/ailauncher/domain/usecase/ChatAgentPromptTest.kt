@@ -20,6 +20,7 @@ import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.FolderAccent
+import com.ailauncher.domain.model.FolderRule
 import com.ailauncher.domain.repository.ChatRepository
 import com.ailauncher.domain.repository.FolderRepository
 import com.ailauncher.domain.repository.SettingsRepository
@@ -179,10 +180,12 @@ class ChatAgentPromptTest {
     private class FakeFolders : FolderRepository {
         override val folders: Flow<List<CustomFolder>> = flowOf(emptyList())
         override suspend fun get(id: Long): CustomFolder? = null
-        override suspend fun create(name: String, description: String?, accent: FolderAccent, packageNames: List<String>) = 1L
+        override suspend fun create(name: String, description: String?, accent: FolderAccent, packageNames: List<String>, rule: FolderRule?) = 1L
         override suspend fun update(id: Long, name: String, description: String?, accent: FolderAccent) = Unit
         override suspend fun setApps(id: Long, packageNames: List<String>) = Unit
+        override suspend fun setRule(id: Long, rule: FolderRule?, packageNames: List<String>) = Unit
         override suspend fun delete(id: Long) = Unit
+        override fun refreshSmartFolders() = Unit
         override suspend fun findByName(query: String): CustomFolder? = null
     }
 

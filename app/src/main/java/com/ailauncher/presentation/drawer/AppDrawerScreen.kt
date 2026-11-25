@@ -401,7 +401,7 @@ private fun FoldersContent(state: DrawerUiState, callbacks: DrawerCallbacks) {
                     Column(Modifier.weight(1f)) {
                         Text(folder.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            folder.description ?: "${apps.size} app${if (apps.size == 1) "" else "s"}",
+                            folder.description ?: folder.rule?.summary ?: "${apps.size} app${if (apps.size == 1) "" else "s"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,

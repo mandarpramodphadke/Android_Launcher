@@ -13,6 +13,8 @@ import com.ailauncher.domain.model.FileTypeFilter
 import com.ailauncher.domain.model.ReportOutcome
 import com.ailauncher.domain.model.SearchFolder
 import com.ailauncher.domain.model.FolderAccent
+import com.ailauncher.domain.model.FolderRule
+import com.ailauncher.domain.model.LauncherWidgetConfig
 import com.ailauncher.domain.model.GridPosition
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.NotificationDigestItem
@@ -35,6 +37,14 @@ interface HomeLayoutRepository {
     suspend fun addApp(componentKey: String, preferredPage: Int, spec: GridSpec): GridPosition?
     suspend fun addFolder(folderId: Long, preferredPage: Int, spec: GridSpec): GridPosition?
     suspend fun addWidget(appWidgetId: Int, provider: String, spanX: Int, spanY: Int, preferredPage: Int, spec: GridSpec): GridPosition?
+    suspend fun addLauncherWidget(config: LauncherWidgetConfig, spanX: Int, spanY: Int, preferredPage: Int, spec: GridSpec): GridPosition?
+    suspend fun setLauncherWidgetConfig(itemId: Long, config: LauncherWidgetConfig)
+
+    /**
+     * Removes [removeItemIds] and puts the folder at [at] in one step (an app dropped onto another
+     * app). False, with nothing changed, when [at] would still be taken.
+     */
+    suspend fun replaceWithFolder(removeItemIds: List<Long>, folderId: Long, at: GridPosition, spec: GridSpec): Boolean
 
     suspend fun move(itemId: Long, target: GridPosition, spec: GridSpec): Boolean
     suspend fun resize(itemId: Long, spanX: Int, spanY: Int, spec: GridSpec): GridPosition?
@@ -51,14 +61,24 @@ interface HomeLayoutRepository {
     suspend fun movePage(from: Int, to: Int)
 }
 
-/** User folders with a name, a description and an ordered app list (Room `custom_folders`). */
+/**
+ * User folders with a name, a description and an ordered app list (Room `custom_folders`). For a
+ * smart folder, [CustomFolder.packageNames] is worked out from its rule every time apps or app
+ * usage change.
+ */
 interface FolderRepository {
     val folders: Flow<List<CustomFolder>>
     suspend fun get(id: Long): CustomFolder?
-    suspend fun create(name: String, description: String?, accent: FolderAccent, packageNames: List<String>): Long
+    suspend fun create(name: String, description: String?, accent: FolderAccent, packageNames: List<String>, rule: FolderRule? = null): Long
     suspend fun update(id: Long, name: String, description: String?, accent: FolderAccent)
     suspend fun setApps(id: Long, packageNames: List<String>)
+
+    /** Makes the folder smart ([rule]) or, with null, an ordinary folder of [packageNames]. */
+    suspend fun setRule(id: Long, rule: FolderRule?, packageNames: List<String> = emptyList())
     suspend fun delete(id: Long)
+
+    /** Re-reads app usage for smart folders that depend on it (e.g. when one is opened). */
+    fun refreshSmartFolders()
 
     /** Folder whose name matches [query] ("Work", "my work folder"), if any. */
     suspend fun findByName(query: String): CustomFolder?
