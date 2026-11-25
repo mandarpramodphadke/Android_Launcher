@@ -69,8 +69,8 @@ README.md describes the app; docs/PLAY_RELEASE.md describes the Play version and
 
 ## Open items
 
-- 1.4 features are full-only until the owner has tried them on their phone: `TODO_WIDGETS`,
-  `HOME_DRAG_AND_DROP`, `SMART_FOLDERS` (table in docs/PLAY_RELEASE.md). Their policy check passed:
-  no new permission, nothing leaves the device.
+- Full-only until the owner has tried them on their phone: `TODO_WIDGETS`, `HOME_DRAG_AND_DROP`,
+  `SMART_FOLDERS` (1.4) and `SYSTEM_INFO` (1.5); table in docs/PLAY_RELEASE.md. Their policy check
+  passed: no new permission, no device identifiers, nothing leaves the device.
 - Before the first Play submission, set `report.form.url` (Google Form, see docs/report-form.md).
   Until then, AI-reply reports open an email draft, which leaves the app.

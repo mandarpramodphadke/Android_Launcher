@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -123,6 +124,9 @@ import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.presentation.components.EngineDetailsSheet
 import com.ailauncher.presentation.components.EngineStatusChip
+import com.ailauncher.presentation.components.SwipeDirection
+import com.ailauncher.presentation.components.horizontalSwipe
+import com.ailauncher.presentation.components.rememberSwipeAction
 import com.ailauncher.presentation.components.LauncherTextField
 import com.ailauncher.presentation.components.MarkdownText
 import com.ailauncher.presentation.components.NotificationDigestDisclosure
@@ -149,6 +153,8 @@ fun AiChatScreen(
     onBack: () -> Unit,
     onOpenModelSetup: () -> Unit,
     onOpenPlanner: (PlannerTab) -> Unit = {},
+    /** The System info page; when set, swiping left (onwards from home) or the chip icon opens it. */
+    onOpenSystemInfo: (() -> Unit)? = null,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -267,7 +273,10 @@ fun AiChatScreen(
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(0)
     }
 
+    val swipeToSystemInfo = rememberSwipeAction { onOpenSystemInfo?.invoke() }
     Scaffold(
+        // Home ▸ swipe left ▸ assistant ▸ swipe left ▸ System info.
+        modifier = if (onOpenSystemInfo != null) Modifier.horizontalSwipe(SwipeDirection.LEFT, swipeToSystemInfo) else Modifier,
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
@@ -281,6 +290,9 @@ fun AiChatScreen(
                 actions = {
                     IconButton(onClick = { confirmClear = true }, enabled = state.messages.isNotEmpty()) {
                         Icon(Icons.Rounded.DeleteSweep, "Clear chat")
+                    }
+                    if (onOpenSystemInfo != null) {
+                        IconButton(onClick = onOpenSystemInfo) { Icon(Icons.Rounded.Memory, "System info") }
                     }
                 },
             )

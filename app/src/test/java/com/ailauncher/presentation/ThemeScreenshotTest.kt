@@ -65,6 +65,9 @@ import com.ailauncher.domain.model.LauncherWidgetKind
 import com.ailauncher.domain.model.TodoItem
 import com.ailauncher.domain.model.TodoPriority
 import com.ailauncher.presentation.folders.FolderEditorContent
+import com.ailauncher.presentation.system.SystemInfoContent
+import com.ailauncher.presentation.system.SystemInfoUiState
+import com.ailauncher.domain.system.SystemInfoSections
 import com.ailauncher.presentation.home.LauncherWidgetData
 import com.ailauncher.domain.model.GridPosition
 import com.ailauncher.domain.model.HomeItem
@@ -185,6 +188,12 @@ class ThemeScreenshotTest {
                 FolderEditor(settings(AppTheme.CLASSIC, ThemeMode.LIGHT), NewAppsFolder.copy(name = "Games", rule = FolderRule.Category(AppCategory.GAMES)))
             })
             add(Shot("folder-editor-new-light") { FolderEditor(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), null) })
+
+            // 1.5: System info, the page after the assistant.
+            add(Shot("system-info-material-you-dark") { SystemInfo(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), firstItem = 0) })
+            add(Shot("system-info-material-you-dark-cpu") { SystemInfo(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), firstItem = 2) })
+            add(Shot("system-info-colourful-light-memory") { SystemInfo(settings(AppTheme.COLORFUL, ThemeMode.LIGHT), firstItem = 4) })
+            add(Shot("system-info-amoled-device") { SystemInfo(settings(AppTheme.AMOLED), firstItem = 7) })
 
             add(Shot("settings-theme-picker-light") { Picker(settings(AppTheme.COLORFUL, ThemeMode.LIGHT)) })
             add(Shot("settings-theme-picker-dark") { Picker(settings(AppTheme.NEON, ThemeMode.DARK)) })
@@ -346,6 +355,24 @@ class ThemeScreenshotTest {
                     onOpenModelSetup = {},
                 )
             }
+        }
+    }
+
+    @Composable
+    private fun SystemInfo(settings: LauncherSettings, firstItem: Int) {
+        AiLauncherTheme(settings) {
+            SystemInfoContent(
+                state = SystemInfoUiState(
+                    details = SystemFixture.details,
+                    live = SystemFixture.live,
+                    cpuHistory = SystemFixture.history,
+                    ramHistory = SystemFixture.history.map { 0.55f + it * 0.15f },
+                    sections = SystemInfoSections.build(SystemFixture.details, SystemFixture.live),
+                ),
+                onBack = {},
+                onCopy = {},
+                listState = rememberLazyListState(initialFirstVisibleItemIndex = firstItem),
+            )
         }
     }
 

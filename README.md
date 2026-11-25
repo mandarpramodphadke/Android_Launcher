@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.5: System info](#whats-new-in-15-system-info)
 1. [What's new in 1.4: to-do widgets and smart folders](#whats-new-in-14-to-do-widgets-and-smart-folders)
 1. [What's new in 1.3: Google Play version](#whats-new-in-13-google-play-version)
 1. [What's new in 1.2](#whats-new-in-12)
@@ -28,6 +29,36 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.5: System info
+
+A page after the AI chat, in the **full** version first (flag `SYSTEM_INFO`). From the home screen,
+swipe left past the last page to the assistant, then swipe left again; swipe right (or Back) to
+return. The assistant's top bar and the *AI Launcher* tools folder also open it.
+
+- **At a glance**: the phone's name, Android version and chip, with rings for battery, RAM and
+  storage.
+- **Battery**: level, charging state and source, time to full, health, temperature, voltage,
+  current draw, estimated capacity, charge cycles (Android 14+) and technology.
+- **Processor**: chip name, cores grouped by type (e.g. 1 × Cortex-X3, 3 × Cortex-A715, 4 ×
+  Cortex-A510) with top speeds, each core's live speed, a one-minute "clock load" graph,
+  architecture, governor and instruction sets.
+- **Graphics**: GPU name and vendor (from OpenGL ES), OpenGL ES and Vulkan versions; live load
+  and clock on phones that expose them (Adreno).
+- **Memory and storage**: RAM installed, usable, used (with a one-minute graph) and available,
+  swap (zRAM); storage capacity, used and free, including SD cards.
+- **Display, device, software, network, temperature & power, cameras, features and sensors**:
+  resolution, density, size, refresh rate, HDR; brand, model, code name, SoC, board; Android
+  version and API level, security patch, build, kernel, bootloader, ABIs, up time; connection
+  type and speed estimate; thermal state and battery saver; each camera's megapixels and focal
+  length; NFC, eSIM, UWB, fingerprint and other features; every sensor.
+
+Live values refresh every second while the page is open and stop when you leave it. *Copy all*
+puts the whole report on the clipboard. Everything is read on the phone through public Android
+APIs that need no permission; nothing that identifies the phone (serial number, IMEI, Android ID,
+MAC address) is read, and nothing is saved or sent anywhere.
 
 ---
 
@@ -586,6 +617,9 @@ The JVM unit tests cover:
   and argument grounding (including verbatim real-model outputs), quick commands, date-range and
   day parsing, the notification extractor, clipboard analysis, app suggestions, the home grid
   planner, the agenda builder, free slots and the model catalog
+- 1.5: System info: /proc/cpuinfo, /proc/meminfo and CPU range parsing, core names and clusters,
+  clock load, size and speed formatting, the page's sections and "Copy all" text, and the swipe
+  from the assistant (which ignores swipes on text fields and sideways-scrolling rows)
 - 1.4: the Room 2 → 3 migration (from the exported v2 schema, with folders, apps and widgets on
   the pages), smart-folder rules and their storage, the drop planner, to-do widget ordering and
   the *Today* overview, and `HomeDragAndDropTest`, which drives real touch input through the home
@@ -625,6 +659,17 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 ---
 
 ## Verification performed
+
+1.5.0 (full version):
+
+- `assembleFullRelease` builds a **23.8 MB APK**, version 1.5.0 (6), signed with the same key,
+  16 KB aligned, with the same permissions as 1.4.0. Zero Kotlin compiler warnings; lint is clean
+  on both versions except for `OldTargetApi`.
+- **151 JVM unit tests pass on both versions** (1 JNI host test skipped unless configured). New: the
+  /proc and /sys parsers, the System info sections, the swipe that opens the page, a Robolectric
+  run of the real reader (every value must load or fall back without crashing), and 4 System info
+  screenshots (43 in all).
+- Not verified here: the values a real phone reports (no device on this machine).
 
 1.4.0 (full version):
 

@@ -69,8 +69,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -114,6 +114,7 @@ android {
     // full and false in play until it has been tested on a phone and checked against Play policy.
     // 1.4: TODO_WIDGETS (launcher-drawn to-do widgets), HOME_DRAG_AND_DROP (drag apps to move them
     // or make folders), SMART_FOLDERS (folders that fill themselves).
+    // 1.5: SYSTEM_INFO (the System info page after the AI chat).
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -124,6 +125,7 @@ android {
             buildConfigField("boolean", "TODO_WIDGETS", "true")
             buildConfigField("boolean", "HOME_DRAG_AND_DROP", "true")
             buildConfigField("boolean", "SMART_FOLDERS", "true")
+            buildConfigField("boolean", "SYSTEM_INFO", "true")
         }
         create("play") {
             dimension = "distribution"
@@ -135,6 +137,7 @@ android {
             buildConfigField("boolean", "TODO_WIDGETS", "false")
             buildConfigField("boolean", "HOME_DRAG_AND_DROP", "false")
             buildConfigField("boolean", "SMART_FOLDERS", "false")
+            buildConfigField("boolean", "SYSTEM_INFO", "false")
         }
     }
 

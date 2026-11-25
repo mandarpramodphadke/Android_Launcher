@@ -20,6 +20,8 @@ import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.NotificationDigestItem
 import com.ailauncher.domain.model.PlannerBlock
 import com.ailauncher.domain.model.SmartPill
+import com.ailauncher.domain.model.SystemDetails
+import com.ailauncher.domain.model.LiveSystemStatus
 import com.ailauncher.domain.model.TodoItem
 import com.ailauncher.domain.model.TodoPriority
 import com.ailauncher.domain.suggestions.LaunchSignal
@@ -183,4 +185,16 @@ interface ContentReportRepository {
     /** Replies the user reported on this phone; they stay hidden behind a "Show" button. */
     val reportedMessageIds: Flow<Set<Long>>
     suspend fun submit(report: ContentReport): ReportOutcome
+}
+
+/**
+ * Battery, memory, storage, CPU, GPU, display and device details for the System info page, read
+ * on the phone through public APIs that need no permission. Nothing is stored or sent.
+ */
+interface SystemInfoRepository {
+    /** Values that don't change while the page is open (device, CPU and GPU model, display, …). */
+    suspend fun details(): SystemDetails
+
+    /** Battery, memory, storage, CPU speeds and so on, every [intervalMillis] while collected. */
+    fun live(intervalMillis: Long = 1_000L): Flow<LiveSystemStatus>
 }

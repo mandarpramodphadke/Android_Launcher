@@ -89,6 +89,7 @@ enum class LauncherTool(val label: String, val description: String) {
     PRIVATE_SPACE("Private", "Private Space: your hidden apps"),
     WIDGETS("Widgets", "Add a widget to the home screen"),
     SETTINGS("Settings", "Launcher settings"),
+    SYSTEM_INFO("System", "Battery, memory, storage, CPU and GPU details"),
 }
 
 /**

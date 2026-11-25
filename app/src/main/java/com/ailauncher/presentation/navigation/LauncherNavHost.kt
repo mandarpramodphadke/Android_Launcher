@@ -1,5 +1,7 @@
 package com.ailauncher.presentation.navigation
 
+import com.ailauncher.BuildConfig
+import com.ailauncher.presentation.system.SystemInfoScreen
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -60,6 +62,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable data object LicensesRoute
 
+/** Battery, memory, storage, CPU, GPU and device details: the page after the AI chat. */
+@Serializable data object SystemInfoRoute
+
 /** To-dos & Daily Planner. [tab] is a [PlannerTab] name. */
 @Serializable data class PlannerRoute(val tab: String = PlannerTab.PLAN.name)
 
@@ -72,6 +77,13 @@ fun LauncherNavHost(
     destinations: Flow<LauncherDestination> = emptyFlow(),
     navController: NavHostController = rememberNavController(),
 ) {
+    // The page after the AI chat (full version until it reaches Google Play).
+    val openSystemInfo: (() -> Unit)? = if (BuildConfig.SYSTEM_INFO) {
+        { navController.navigate(SystemInfoRoute) { launchSingleTop = true } }
+    } else {
+        null
+    }
+
     // A folder the assistant opened ("open my Work folder"): shown by the home screen.
     var folderRequest by rememberSaveable { mutableStateOf<Long?>(null) }
 
@@ -153,6 +165,7 @@ fun LauncherNavHost(
                             onOpenSettings = { navController.navigate(SettingsRoute) { launchSingleTop = true } },
                             onOpenPlanner = { navController.navigate(PlannerRoute()) { launchSingleTop = true } },
                             onOpenTodos = { navController.navigate(PlannerRoute(PlannerTab.TODOS.name)) { launchSingleTop = true } },
+                            onOpenSystemInfo = openSystemInfo,
                         )
                     }
                 }
@@ -168,6 +181,7 @@ fun LauncherNavHost(
                             onBack = { navController.popBackStack() },
                             onOpenModelSetup = { navController.navigate(ModelSetupRoute()) },
                             onOpenPlanner = { tab -> navController.navigate(PlannerRoute(tab.name)) { launchSingleTop = true } },
+                            onOpenSystemInfo = openSystemInfo,
                         )
                     }
                 }
@@ -182,6 +196,10 @@ fun LauncherNavHost(
                         onOpenPrivacyPolicy = { navController.navigate(PrivacyPolicyRoute) { launchSingleTop = true } },
                         onOpenLicenses = { navController.navigate(LicensesRoute) { launchSingleTop = true } },
                     )
+                }
+
+                composable<SystemInfoRoute>(enterTransition = slideFromEnd, popExitTransition = slideToEnd) {
+                    SystemInfoScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable<PrivacyPolicyRoute>(enterTransition = slideFromEnd, popExitTransition = slideToEnd) {

@@ -156,6 +156,8 @@ fun LauncherHomeScreen(
     onOpenSettings: () -> Unit,
     onOpenPlanner: () -> Unit,
     onOpenTodos: () -> Unit = onOpenPlanner,
+    /** The System info page (null when this build doesn't have it). */
+    onOpenSystemInfo: (() -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel(),
     drawerViewModel: AppDrawerViewModel = hiltViewModel(),
     foldersViewModel: FoldersViewModel = hiltViewModel(),
@@ -505,6 +507,7 @@ fun LauncherHomeScreen(
             LauncherTool.PRIVATE_SPACE -> openPrivateSpace()
             LauncherTool.WIDGETS -> showWidgetPicker = true
             LauncherTool.SETTINGS -> onOpenSettings()
+            LauncherTool.SYSTEM_INFO -> onOpenSystemInfo?.invoke()
         }
     }
 

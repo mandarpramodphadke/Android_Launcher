@@ -1,5 +1,6 @@
 package com.ailauncher.presentation.folders
 
+import com.ailauncher.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -159,7 +160,8 @@ fun FolderSheet(
                     }
                 }
             }
-            val tools = folder.tools
+            // System info is a full-version page until it reaches Google Play.
+            val tools = folder.tools.filter { it != LauncherTool.SYSTEM_INFO || BuildConfig.SYSTEM_INFO }
             when {
                 tools.isNotEmpty() -> tools.chunked(columns).forEach { row ->
                     Row(Modifier.fillMaxWidth()) {

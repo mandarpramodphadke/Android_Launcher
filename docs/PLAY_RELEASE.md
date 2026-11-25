@@ -26,6 +26,12 @@ Google Play doesn't allow, such as all-files access, stay in the full version.
 | 1.4 | To-do widgets (list, Today, Add a to-do) | `TODO_WIDGETS` | Full only: waiting for a phone test |
 | 1.4 | Drag and drop on the home screen | `HOME_DRAG_AND_DROP` | Full only: waiting for a phone test |
 | 1.4 | Smart folders | `SMART_FOLDERS` | Full only: waiting for a phone test |
+| 1.5 | System info page (after the AI chat) | `SYSTEM_INFO` | Full only: waiting for a phone test |
+
+Policy check for System info (1.5): it reads device details through public APIs that need no
+permission, reads no device identifiers (serial number, IMEI, Android ID, MAC address), and keeps
+everything on the phone, so it needs no Data safety change. The only network-related call reads
+the connection type with `ACCESS_NETWORK_STATE`, which the app already declares.
 
 Policy check for the 1.4 features: they add no permission and send nothing off the phone. Smart
 folders that read app usage use the Usage access the app already has (on-device only), so the

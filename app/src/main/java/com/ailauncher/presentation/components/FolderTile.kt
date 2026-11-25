@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.rounded.EventNote
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Today
@@ -77,6 +78,7 @@ val LauncherTool.icon: ImageVector
         LauncherTool.PRIVATE_SPACE -> Icons.Rounded.Lock
         LauncherTool.WIDGETS -> Icons.Rounded.Widgets
         LauncherTool.SETTINGS -> Icons.Rounded.Settings
+        LauncherTool.SYSTEM_INFO -> Icons.Rounded.Memory
     }
 
 /** A launcher feature drawn like an app icon: the theme's primary colours and a symbol. */
