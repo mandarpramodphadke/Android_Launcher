@@ -241,7 +241,7 @@ class ChatAgent @Inject constructor(
                         when (event) {
                             is GenerationEvent.Token -> {
                                 raw.append(event.text)
-                                _streaming.value = StreamingReply(message.id, ModelOutputParser.parse(raw.toString()))
+                                _streaming.value = StreamingReply(message.id, ModelOutputParser.parse(raw.toString(), lenient = features.betterAnswers))
                             }
                             is GenerationEvent.Completed -> stats = event.stats
                         }
@@ -260,7 +260,7 @@ class ChatAgent @Inject constructor(
             // Asked to write an email, the 1.7B model sometimes calls a tool that doesn't exist
             // ("write_email"). Tell it so, the way a tool would, and keep only its second answer.
             val madeUp = if (features.betterAnswers && stats?.stopReason != StopReason.CANCELLED) {
-                madeUpToolCalls(ModelOutputParser.parse(raw.toString()))
+                madeUpToolCalls(ModelOutputParser.parse(raw.toString(), lenient = features.betterAnswers))
             } else {
                 null
             }
@@ -271,7 +271,7 @@ class ChatAgent @Inject constructor(
             }
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
-                val parsed = ModelOutputParser.parse(raw.toString())
+                val parsed = ModelOutputParser.parse(raw.toString(), lenient = features.betterAnswers)
                 chatRepository.update(
                     message.copy(
                         content = parsed.answer,
@@ -291,7 +291,7 @@ class ChatAgent @Inject constructor(
             return null
         }
 
-        val parsed = ModelOutputParser.parse(raw.toString())
+        val parsed = ModelOutputParser.parse(raw.toString(), lenient = features.betterAnswers)
         val userText = history.lastOrNull { it.role == ChatRole.USER }?.content
         val invocations = parsed.toolCalls.map { call ->
             when (val routing = toolRouter.route(call, userText)) {

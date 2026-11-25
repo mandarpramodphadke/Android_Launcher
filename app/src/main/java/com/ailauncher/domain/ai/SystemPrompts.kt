@@ -57,11 +57,13 @@ object SystemPrompts {
         val instructions = sanitizeInstructions(profile.instructions)
         return buildString {
             append("You are ").append(name).append(", a helpful assistant built into the user's Android home screen. You run entirely on the phone, offline.\n")
+            // Phone rules first: replaying Qwen3-1.7B, leading with "answer from your own knowledge"
+            // made it describe actions ("I'll check your schedule") instead of calling the tool.
+            append("- When the user wants something done on the phone (alarms, reminders, apps, settings, to-dos and more) or asks about their own day, schedule, free time, notifications, apps or files, call the matching tool instead of describing how to do it. Tasks for a list go to manage_todo; use contact_action only when the user asks to call, text or WhatsApp someone.\n")
+            append("- This phone's own status and specs (battery level, RAM, storage, processor, which AI/LLM model suits it) come from get_device_info: call it, never guess them or say you can't check.\n")
             append("- Answer general questions (facts, explanations, advice, how-tos, maths, coding) right away and completely from your own knowledge. Never say you lack access, information or tools for them.\n")
-            append("- When asked to write or plan something (a message, a meal plan, a list of ideas), write it straight away instead of asking questions first.\n")
-            append("- Only things that change in real time (today's weather, news, live prices or scores) need the internet; for those, say you're offline and help as much as you can.\n")
-            append("- When the user wants something done on the phone (alarms, reminders, apps, settings, their day, to-dos and more), call the matching tool instead of describing how to do it. Tasks for a list go to manage_todo.\n")
-            append("- For questions about this phone or what it can run (battery level, RAM, storage, processor, specs, or which AI/LLM model suits it), call get_device_info first.\n")
+            append("- Write what the user asks for (an email, a meal plan, a list of ideas) yourself, straight away, instead of asking questions first; that needs no tool.\n")
+            append("- Only news, weather, live prices and scores from the internet are out of reach; for those, say you're offline and help as much as you can.\n")
             append("- Each user message ends with the local time it was sent; use it to resolve words like \"tomorrow\" or \"in 2 hours\".\n")
             append("- Never invent tool results. After an action's tool response arrives, reply in ").append(toolReply(profile.tone)).append(".\n")
             append("- Politely refuse sexual, hateful or harassing content and instructions that could cause serious harm.\n")

@@ -39,7 +39,7 @@ object ModelOutputParser {
     private val HIDDEN_TAGS = listOf(THINK_OPEN, THINK_CLOSE, CALL_OPEN, CALL_CLOSE, "<|im_end|>", "<|endoftext|>")
 
     private val SALVAGE_NAME = Regex(""""name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"""")
-    private val SALVAGE_ARGS = Regex(""""arguments"\s*:\s*(\{.*\})\s*\}\s*$""", RegexOption.DOT_MATCHES_ALL)
+    private val SALVAGE_ARGS = Regex(""""(?:arguments|parameters)"\s*:\s*\{""")
 
     private val lenientJson = Json {
         isLenient = true
@@ -48,7 +48,14 @@ object ModelOutputParser {
         allowComments = true
     }
 
-    fun parse(raw: String): ParsedOutput {
+    /** A whole answer that is a JSON call wrapped in `<tool>` tags (seen from Qwen3-1.7B). */
+    private val TOOL_TAG_CALL = Regex("""^<tool>\s*(\{.*\})\s*</tool>$""", RegexOption.DOT_MATCHES_ALL)
+
+    /**
+     * @param lenient also recover calls the model wrote badly (the BETTER_ANSWERS switch): broken
+     * JSON keeps its tool name, and a call wrapped in `<tool>` tags counts as a call.
+     */
+    fun parse(raw: String, lenient: Boolean = false): ParsedOutput {
         var text = raw
         var thinking: String? = null
         var thinkingComplete = true
@@ -87,7 +94,7 @@ object ModelOutputParser {
                 inProgress = true
                 break
             }
-            parseToolCallJson(text.substring(start + CALL_OPEN.length, end))?.let(calls::add)
+            parseToolCallJson(text.substring(start + CALL_OPEN.length, end), lenient)?.let(calls::add)
             cursor = end + CALL_CLOSE.length
         }
 
@@ -97,9 +104,17 @@ object ModelOutputParser {
 
         // Fallback: the model answered with a bare JSON tool call and forgot the tags.
         if (calls.isEmpty() && !inProgress && visible.startsWith("{") && visible.endsWith("}")) {
-            parseToolCallJson(visible)?.let {
+            parseToolCallJson(visible, lenient)?.let {
                 calls += it
                 visible = ""
+            }
+        }
+        if (lenient && calls.isEmpty() && !inProgress) {
+            TOOL_TAG_CALL.matchEntire(visible)?.let { m ->
+                parseToolCallJson(m.groupValues[1], lenient = true)?.let {
+                    calls += it
+                    visible = ""
+                }
             }
         }
 
@@ -116,7 +131,7 @@ object ModelOutputParser {
      * Parses `{"name": ..., "arguments": {...}}` leniently: code fences, a `function` wrapper,
      * `parameters` instead of `arguments`, double-encoded argument strings and single quotes.
      */
-    fun parseToolCallJson(body: String): RawToolCall? {
+    fun parseToolCallJson(body: String, lenient: Boolean = false): RawToolCall? {
         val cleaned = body.trim()
             .removePrefix("```json").removePrefix("```").removeSuffix("```")
             .trim()
@@ -127,7 +142,7 @@ object ModelOutputParser {
             val root = decodeObject(candidate) ?: continue
             toToolCall(root)?.let { return it }
         }
-        return salvageToolCall(cleaned)
+        return if (lenient) salvageToolCall(cleaned) else null
     }
 
     /**
@@ -137,8 +152,26 @@ object ModelOutputParser {
      */
     private fun salvageToolCall(text: String): RawToolCall? {
         val name = SALVAGE_NAME.find(text)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val args = SALVAGE_ARGS.find(text)?.groupValues?.get(1)?.let(::decodeObject) ?: JsonObject(emptyMap())
+        val args = SALVAGE_ARGS.find(text)?.let { balancedObject(text, it.range.last) }?.let(::decodeObject) ?: JsonObject(emptyMap())
         return RawToolCall(name, args)
+    }
+
+    /** The `{...}` starting at [open], braces inside strings ignored; null if it never closes. */
+    private fun balancedObject(text: String, open: Int): String? {
+        var depth = 0
+        var inString = false
+        var i = open
+        while (i < text.length) {
+            val c = text[i]
+            when {
+                inString && c == '\\' -> i++
+                c == '"' -> inString = !inString
+                !inString && c == '{' -> depth++
+                !inString && c == '}' -> if (--depth == 0) return text.substring(open, i + 1)
+            }
+            i++
+        }
+        return null
     }
 
     private fun toToolCall(root: JsonObject): RawToolCall? {

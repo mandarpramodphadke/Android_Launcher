@@ -23,8 +23,11 @@ class BetterAnswersTest {
         val prompt = SystemPrompts.assistant(AssistantProfile(), betterAnswers = true)
         assertThat(prompt).isSameInstanceAs(SystemPrompts.generalAssistant)
         assertThat(prompt).contains("from your own knowledge. Never say you lack access, information or tools for them.")
-        assertThat(prompt).contains("call get_device_info first")
-        assertThat(prompt).contains("Tasks for a list go to manage_todo.")
+        assertThat(prompt).contains("come from get_device_info: call it, never guess them")
+        assertThat(prompt).contains("Tasks for a list go to manage_todo;")
+        // Phone rules come before the general-knowledge rule (measured: the other order made the
+        // model promise to check the schedule instead of calling the tool).
+        assertThat(prompt.indexOf("call the matching tool")).isLessThan(prompt.indexOf("from your own knowledge"))
         assertThat(prompt).doesNotContain("cannot browse the web or look up live information")
         assertThat(prompt).doesNotContain("Local time:")
         assertThat(prompt.indexOf("Politely refuse")).isGreaterThan(0)
@@ -93,10 +96,39 @@ class BetterAnswersTest {
         assertThat(on.parse("Am I free today")).isEqualTo(plan(LocalDate.of(2026, 11, 23)))
         assertThat(on.parse("Do I have any free time on Friday afternoon?")).isEqualTo(plan(LocalDate.of(2026, 11, 27)))
         assertThat(on.parse("when do I have free time")).isEqualTo(plan(LocalDate.of(2026, 11, 23)))
-        // A time or a person is a question for the model.
-        assertThat(on.parse("am I free at 3pm tomorrow?")).isNull()
+        // With a time, the day's plan is read and the model answers from it; other people's time isn't ours.
+        assertThat(on.parse("am I free at 3pm tomorrow?")).isEqualTo(plan(LocalDate.of(2026, 11, 24)))
         assertThat(on.parse("is Sam free tomorrow?")).isNull()
         assertThat(QuickCommandParser { monday }.parse("when am I free tomorrow?")).isNull()
+    }
+
+    @Test
+    fun scheduleQuestionsReadTheDayOnlyWhenSwitchedOn() {
+        val monday = ZonedDateTime.of(2026, 11, 23, 10, 15, 0, 0, ZoneId.of("UTC"))
+        val on = QuickCommandParser(betterAnswers = true) { monday }
+        fun plan(day: Int) = ToolCommand.ManagePlanner(PlannerAction.GET_DAY_PLAN, LocalDate.of(2026, 11, day))
+        mapOf(
+            "Do I have any meetings tomorrow?" to plan(24),
+            "what do I have on Friday?" to plan(27),
+            "What do I have tomorrow" to plan(24),
+            "what's on tomorrow?" to plan(24),
+            "Is there anything on my calendar on Thursday?" to plan(26),
+            "What's my schedule for tomorrow?" to plan(24),
+            "am I busy this afternoon?" to plan(23),
+            "What's on my calendar?" to ToolCommand.GetTodayAgenda,
+            "do I have any appointments today?" to ToolCommand.GetTodayAgenda,
+        ).forEach { (text, command) -> assertThat(on.parse(text)).isEqualTo(command) }
+        listOf(
+            // Changes to the calendar, to-dos, and general questions stay with the model.
+            "add a meeting tomorrow at 3pm",
+            "schedule a call with Sam on Friday",
+            "remind me tomorrow about my appointment",
+            "cancel my meetings tomorrow",
+            "what do I have to do today?",
+            "Do I have time to learn Python?",
+            "what is a calendar year?",
+        ).forEach { assertThat(on.parse(it)).isNull() }
+        assertThat(QuickCommandParser { monday }.parse("Do I have any meetings tomorrow?")).isNull()
     }
 
     @Test
@@ -112,12 +144,22 @@ class BetterAnswersTest {
             val routed = router.route(RawToolCall(name, kotlinx.serialization.json.JsonObject(emptyMap())))
             assertThat((routed as ToolRouting.Valid).command).isEqualTo(ToolCommand.GetDeviceInfo)
         }
-        // Verbatim Qwen3-1.7B output: the arguments object isn't valid JSON.
-        val parsed = ModelOutputParser.parse("<tool_call>\n{\"name\": \"get_device_info\", \"arguments\": {\"\"}}\n</tool_call>")
-        assertThat(parsed.toolCalls.map { it.name }).containsExactly("get_device_info")
+        // Verbatim Qwen3-1.7B outputs: the arguments object isn't valid JSON, or the call is wrapped
+        // in <tool> tags. Recovered only in lenient mode (the switch); the Play version is unchanged.
+        listOf(
+            "<tool_call>\n{\"name\": \"get_device_info\", \"arguments\": {\"\"}}\n</tool_call>",
+            "<tool_call>\n{\"name\": \"get_device_info\", \"arguments\": {\"}}\n</tool_call>",
+            "<tool>\n{\"name\": \"get_device_info\", \"arguments\": {\"\"}}\n</tool>",
+        ).forEach { output ->
+            val lenient = ModelOutputParser.parse(output, lenient = true)
+            assertThat(lenient.toolCalls.map { it.name }).containsExactly("get_device_info")
+            assertThat(lenient.answer).isEmpty()
+            assertThat(ModelOutputParser.parse(output).toolCalls).isEmpty()
+        }
         // Salvaged arguments still parse when only the outer object is broken.
-        val partly = ModelOutputParser.parseToolCallJson("{\"name\": \"set_timer\", \"arguments\": {\"seconds\": 300}, }}")
+        val partly = ModelOutputParser.parseToolCallJson("{\"name\": \"set_timer\", \"arguments\": {\"seconds\": 300}, }}", lenient = true)
         assertThat(partly?.name).isEqualTo("set_timer")
+        assertThat(partly?.arguments?.get("seconds")?.jsonPrimitive?.content).isEqualTo("300")
     }
 
     @Test

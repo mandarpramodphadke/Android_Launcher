@@ -42,10 +42,11 @@ Full version first (flag `BETTER_ANSWERS`).
   and the 1.7B model read it as "only help with the phone": asked to compare RAM and storage, or
   how credit scores work in India, it replied that it had no access to that information. With the
   flag on, the assistant gets a new prompt that tells it to answer facts, explanations, advice,
-  maths and code from its own knowledge, to write what it is asked for (a message, a meal plan)
+  maths and code from its own knowledge, to write what it is asked for (an email, a meal plan)
   straight away, and to say it is offline only for live information such as news or weather.
-  Tool use is unchanged. The prompt was measured on the real Qwen3-1.7B (see *Verification
-  performed*).
+  Phone actions (alarms, reminders, to-dos, the planner, messages, apps) work as before; schedule
+  questions are handled by the app (below). Seven wordings were measured on the real Qwen3-1.7B
+  (see *Verification performed*).
 - **"Which model can my phone run?"** A new read-only tool, `get_device_info`, gives the model
   this phone's specs (model, Android version, processor, GPU, RAM, storage, battery) and a verdict
   for each downloadable model: *best*, *good*, *tight* or *too big* for this phone's memory, and
@@ -54,12 +55,17 @@ Full version first (flag `BETTER_ANSWERS`).
   for games?") read these details first, and the model answers with them: left to decide, the
   1.7B model often skipped the lookup or made up a battery level. "Battery level", "phone specs"
   and "how much storage do I have" show the details instantly.
-- **"When am I free tomorrow?"** opens that day's plan with its free slots, without the model.
+- **Questions about your own time.** "When am I free tomorrow?", "Do I have any meetings on
+  Friday?" and "What's on my calendar?" open that day's plan (with its free slots) or today's
+  agenda directly, and the model answers from it. With the new prompt the model itself tended to
+  reply "I'll check your schedule" without checking. Requests that add, move or cancel something
+  still go to the model.
 - **Sturdier tool calls.** When the model writes a tool call that isn't valid JSON (seen:
   `{"name": "get_device_info", "arguments": {""}}`), the tool name is still recovered. When it
   calls a tool that doesn't exist (asked to write an email, it tried `write_email`), it is told so
   the way a tool would answer and writes the reply itself; only that reply reaches the chat.
-- With the flag off (the Play version), the prompt and tool list stay byte for byte as in 1.6.0.
+- With the flag off (the Play version), the prompt, the tool list, the quick commands and the
+  tool-call parsing stay as in 1.6.0.
 
 ---
 

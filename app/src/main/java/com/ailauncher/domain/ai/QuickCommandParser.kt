@@ -28,7 +28,7 @@ class QuickCommandParser(
         // Same cleanup without lower-casing, for groups whose case matters (messages, task titles).
         val original = clean(input)
         // Longer inputs are only quick commands when they are clearly a message or a task.
-        if (text.length > SHORT_LENGTH) return parseDictated(original) ?: deviceQuestion(text)
+        if (text.length > SHORT_LENGTH) return parseDictated(original) ?: deviceQuestion(text) ?: scheduleQuestion(text)
 
         ORGANIZE.matchEntire(text)?.let { return ToolCommand.SortApps }
         AGENDA.matchEntire(text)?.let { return ToolCommand.GetTodayAgenda }
@@ -133,7 +133,24 @@ class QuickCommandParser(
                 return ToolCommand.ContactAction(if (viaWhatsApp) ContactActionType.WHATSAPP else ContactActionType.CALL, name, null)
             }
         }
-        return deviceQuestion(text)
+        return deviceQuestion(text) ?: scheduleQuestion(text)
+    }
+
+    /**
+     * "Do I have any meetings tomorrow?", "what do I have on Friday?", "am I busy this afternoon?":
+     * that day's plan with its free slots, or today's agenda. Replaying the real model showed the
+     * BETTER_ANSWERS prompt often only promising to look ("I'll check your schedule"). Requests that
+     * change the calendar stay with the model.
+     */
+    private fun scheduleQuestion(text: String): ToolCommand? {
+        if (!betterAnswers || !SCHEDULE_QUESTION.containsMatchIn(text) || SCHEDULE_CHANGE.containsMatchIn(text)) return null
+        val today = now().toLocalDate()
+        val date = DAY_WORD.find(text)?.let { DateRangeParser.parseDay(it.value, today, preferFuture = true) } ?: today
+        return if (date == today && !FREE_OR_BUSY.containsMatchIn(text)) {
+            ToolCommand.GetTodayAgenda
+        } else {
+            ToolCommand.ManagePlanner(PlannerAction.GET_DAY_PLAN, date)
+        }
     }
 
     /**
@@ -260,6 +277,23 @@ class QuickCommandParser(
         val DEVICE_TASK = Regex(
             """\b(?:free up|clean|clear|delete|remove|largest|biggest|files?|photos?|pictures?|videos?|music|downloads?|apps?|wallpaper|ringtone|call|text|message|remind(?:er)?|alarm|timer|open|launch|turn|switch|toggle|wi-?fi|bluetooth|flashlight|torch|back ?up|reset|root|unlock)\b""",
         )
+
+        private const val DAY = """(?:today|tonight|tomorrow|(?:next\s+|this\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)"""
+        val DAY_WORD = Regex("""\b$DAY\b""")
+
+        /** A question about the user's own time (see [scheduleQuestion]). */
+        val SCHEDULE_QUESTION = Regex(
+            """\bam i (?:free|busy|available)\b""" +
+                """|\bdo i have (?:any |some )?(?:free time|plans|meetings?|appointments?|events?|anything (?:on|planned|scheduled|going on))\b""" +
+                """|\bwhat(?:'s| is)(?: (?:on|planned|scheduled))?(?: (?:for|on|in))? my (?:schedule|calendar|agenda|plans?|day)\b""" +
+                """|\bwhat do i have (?:on |planned |scheduled |going on )?(?:for |on )?$DAY\b""" +
+                """|\bwhat(?:'s| is) on (?:for )?$DAY\b""" +
+                """|\b(?:anything|something) (?:on|in) my (?:calendar|schedule)\b""",
+        )
+
+        /** Adding, moving or cancelling: a request for the model, not a question. */
+        val SCHEDULE_CHANGE = Regex("""\b(?:add|book|schedule (?:a|an|my)|create|set|remind|move|cancel|delete|remove|reschedule|block|invite|put)\b""")
+        val FREE_OR_BUSY = Regex("""\b(?:free|busy|available)\b""")
 
         /** "when am I free tomorrow?", "do I have any free time on Friday afternoon?" */
         val FREE_TIME = Regex(
