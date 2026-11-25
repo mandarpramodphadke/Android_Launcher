@@ -13,6 +13,7 @@ import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CategorySource
 import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.CategorizationScheduler
 import com.ailauncher.domain.repository.FolderRepository
@@ -200,6 +201,7 @@ class AndroidActionExecutor @Inject constructor(
         val battery = live.battery
         val active = models.spec
         val fits = ModelAdvice.forDevice(models.catalog, live.memory.totalBytes, storage?.freeBytes, config.activeModelId)
+        val downloaded = models.options.first().filter { it.state is ModelFileState.Ready }.map { it.spec.id }.toSet()
         val cpu = buildString {
             append(details.cpu.cores).append(" cores")
             if (details.cpu.clusters.isNotEmpty()) {
@@ -217,7 +219,7 @@ class AndroidActionExecutor @Inject constructor(
             details.cpu.name?.let { put("chip", it) }
             put("cpu", cpu)
             details.gpu.renderer?.let { put("gpu", it) }
-            put("ram", "$ram (${SystemFormat.memory(live.memory.availableBytes)} free now)")
+            put("ram", "$ram total, ${SystemFormat.memory(live.memory.availableBytes)} free now")
             storage?.let { put("storage", "${SystemFormat.bytes(it.capacityBytes ?: it.totalBytes)} (${SystemFormat.bytes(it.freeBytes)} free)") }
             battery?.let { b ->
                 put(
@@ -234,11 +236,21 @@ class AndroidActionExecutor @Inject constructor(
                             put("name", fit.spec.displayName)
                             put("download", SystemFormat.bytes(fit.spec.sizeBytes))
                             put("fit", fit.verdict)
-                            put("note", fit.note + (if (fit.inUse) " (in use)" else "") + (if (!fit.enoughStorage) "; not enough free storage" else ""))
+                            put(
+                                "note",
+                                fit.note +
+                                    when {
+                                        fit.inUse -> " (in use)"
+                                        fit.spec.id in downloaded -> " (downloaded)"
+                                        else -> " (not downloaded yet)"
+                                    } +
+                                    (if (!fit.enoughStorage) "; not enough free storage" else ""),
+                            )
                         },
                     )
                 }
             }
+            put("switch_models", "Settings ▸ AI model: download a model or switch to it")
         }
         val message = listOfNotNull(
             phone,

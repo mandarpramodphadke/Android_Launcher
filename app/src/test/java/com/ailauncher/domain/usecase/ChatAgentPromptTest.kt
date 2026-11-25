@@ -274,15 +274,16 @@ class ChatAgentPromptTest {
             put("chip", "Qualcomm SM7435")
             put("cpu", "8 cores: 4×Cortex-A78 2.40 GHz, 4×Cortex-A55 1.95 GHz")
             put("gpu", "Adreno (TM) 710")
-            put("ram", "8 GB (2.9 GB free now)")
+            put("ram", "8 GB total, 2.9 GB free now")
             put("storage", "256 GB (121 GB free)")
             put("battery", "64%, discharging, health good, 31 °C")
             put("ai_model_in_use", "Qwen3 1.7B · Q4_K_M (1.1 GB), 4096-token context, CPU")
             putJsonArray("ai_models") {
-                add(buildJsonObject { put("name", "Qwen3 0.6B · Q4_K_M"); put("download", "397 MB"); put("fit", "good"); put("note", "fastest, simplest answers") })
-                add(buildJsonObject { put("name", "Qwen3 1.7B · Q4_K_M"); put("download", "1.1 GB"); put("fit", "good"); put("note", "quick, good everyday answers (in use)") })
-                add(buildJsonObject { put("name", "Qwen3 4B · Q4_K_M"); put("download", "2.5 GB"); put("fit", "best"); put("note", "best answers this phone can run well; slower") })
+                add(buildJsonObject { put("name", "Qwen3 0.6B · Q4_K_M"); put("download", "397 MB"); put("fit", "good"); put("note", "faster, simpler answers (not downloaded yet)") })
+                add(buildJsonObject { put("name", "Qwen3 1.7B · Q4_K_M"); put("download", "1.1 GB"); put("fit", "good"); put("note", "faster, simpler answers (in use)") })
+                add(buildJsonObject { put("name", "Qwen3 4B · Q4_K_M"); put("download", "2.5 GB"); put("fit", "best"); put("note", "best answers this phone can run well (not downloaded yet)") })
             }
+            put("switch_models", "Settings ▸ AI model: download a model or switch to it")
         }
 
         val GENERAL_QUESTIONS = mapOf(
