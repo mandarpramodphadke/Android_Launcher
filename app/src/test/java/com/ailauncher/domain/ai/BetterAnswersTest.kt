@@ -59,6 +59,32 @@ class BetterAnswersTest {
     }
 
     @Test
+    fun questionsAboutThisPhoneReadItsDetailsFirst() {
+        val on = QuickCommandParser(betterAnswers = true)
+        listOf(
+            // The question from the owner's screenshot.
+            "I am asking about offline llm models, according to my device specifications which LLM model I can use without any issues for best results?",
+            "Which AI model can my phone run?",
+            "Is my battery running low?",
+            "Does my phone have enough RAM to play games smoothly?",
+            "what processor does this phone have",
+            "Is this device powerful enough for the 4B model?",
+            "how much space left on my phone",
+        ).forEach { assertThat(on.parse(it)).isEqualTo(ToolCommand.GetDeviceInfo) }
+        listOf(
+            // General knowledge, or a task for another tool.
+            "Is it bad to charge my phone overnight?",
+            "What's the difference between RAM and storage?",
+            "Which LLM is best for coding?",
+            "How do I free up space on my phone?",
+            "find the largest videos on my phone",
+            "which apps use the most battery on my phone",
+            "turn on wifi on my phone",
+        ).forEach { assertThat(on.parse(it)).isNotEqualTo(ToolCommand.GetDeviceInfo) }
+        assertThat(QuickCommandParser().parse("Which AI model can my phone run?")).isNull()
+    }
+
+    @Test
     fun freeTimeQuestionsOpenThatDaysPlanOnlyWhenSwitchedOn() {
         val monday = ZonedDateTime.of(2026, 11, 23, 10, 15, 0, 0, ZoneId.of("UTC"))
         val on = QuickCommandParser(betterAnswers = true) { monday }

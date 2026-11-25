@@ -6,9 +6,13 @@ import com.ailauncher.domain.ai.LlmEngine
 import com.ailauncher.domain.ai.SystemPrompts
 import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.ai.ToolNames
+import com.ailauncher.domain.model.AssistantFeatures
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.ChatRole
+import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.EngineState
+import com.ailauncher.domain.model.FolderAccent
+import com.ailauncher.domain.model.FolderRule
 import com.ailauncher.domain.model.GenerationEvent
 import com.ailauncher.domain.model.GenerationParams
 import com.ailauncher.domain.model.InferenceMode
@@ -18,10 +22,6 @@ import com.ailauncher.domain.model.MessageStatus
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
-import com.ailauncher.domain.model.CustomFolder
-import com.ailauncher.domain.model.AssistantFeatures
-import com.ailauncher.domain.model.FolderAccent
-import com.ailauncher.domain.model.FolderRule
 import com.ailauncher.domain.repository.ChatRepository
 import com.ailauncher.domain.repository.FolderRepository
 import com.ailauncher.domain.repository.SettingsRepository
@@ -33,8 +33,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Test
 import java.io.File
 import java.time.ZoneId
@@ -175,6 +177,20 @@ class ChatAgentPromptTest {
         GENERAL_QUESTIONS.forEach { (name, text) ->
             export("v2_general_$name", better.buildPrompt(listOf(message(1, ChatRole.USER, text)), InferenceMode.FAST_ACTION))
         }
+        // The model's answer once the phone's details are in (what a device question gets).
+        DEVICE_QUESTIONS.forEach { (name, text) ->
+            val info = ToolInvocation(
+                id = "d1",
+                name = ToolNames.GET_DEVICE_INFO,
+                arguments = buildJsonObject {},
+                status = ToolStatus.SUCCEEDED,
+                resultData = SAMPLE_DEVICE_INFO,
+            )
+            val history = listOf(message(1, ChatRole.USER, text), message(2, ChatRole.ASSISTANT, "", tools = listOf(info)))
+            val prompt = better.buildPrompt(history, InferenceMode.FAST_ACTION)
+            assertThat(prompt).contains("<|im_start|>user\n<tool_response>\n{\"phone\": \"Xiaomi Redmi Note 13 Pro\"")
+            export("v2_device_$name", prompt)
+        }
     }
 
     /** General questions (no phone action), to replay against the real model. */
@@ -244,6 +260,31 @@ class ChatAgentPromptTest {
     }
 
     companion object {
+        /** Questions about this phone, answered after get_device_info (the quick path). */
+        val DEVICE_QUESTIONS = mapOf(
+            "models" to "I am asking about offline llm models, according to my device specifications which LLM model I can use without any issues for best results?",
+            "battery" to "Is my battery running low?",
+            "gaming" to "Does my phone have enough RAM to play games smoothly?",
+        )
+
+        /** What AndroidActionExecutor returns on an 8 GB phone running the 1.7B model. */
+        val SAMPLE_DEVICE_INFO = buildJsonObject {
+            put("phone", "Xiaomi Redmi Note 13 Pro")
+            put("android", "14 (API 34)")
+            put("chip", "Qualcomm SM7435")
+            put("cpu", "8 cores: 4×Cortex-A78 2.40 GHz, 4×Cortex-A55 1.95 GHz")
+            put("gpu", "Adreno (TM) 710")
+            put("ram", "8 GB (2.9 GB free now)")
+            put("storage", "256 GB (121 GB free)")
+            put("battery", "64%, discharging, health good, 31 °C")
+            put("ai_model_in_use", "Qwen3 1.7B · Q4_K_M (1.1 GB), 4096-token context, CPU")
+            putJsonArray("ai_models") {
+                add(buildJsonObject { put("name", "Qwen3 0.6B · Q4_K_M"); put("download", "397 MB"); put("fit", "good"); put("note", "fastest, simplest answers") })
+                add(buildJsonObject { put("name", "Qwen3 1.7B · Q4_K_M"); put("download", "1.1 GB"); put("fit", "good"); put("note", "quick, good everyday answers (in use)") })
+                add(buildJsonObject { put("name", "Qwen3 4B · Q4_K_M"); put("download", "2.5 GB"); put("fit", "best"); put("note", "best answers this phone can run well; slower") })
+            }
+        }
+
         val GENERAL_QUESTIONS = mapOf(
             "models" to "I am asking about offline llm models, according to my device specifications which LLM model I can use without any issues for best results?",
             "battery" to "Is it bad to charge my phone overnight?",

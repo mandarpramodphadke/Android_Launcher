@@ -28,7 +28,7 @@ class QuickCommandParser(
         // Same cleanup without lower-casing, for groups whose case matters (messages, task titles).
         val original = clean(input)
         // Longer inputs are only quick commands when they are clearly a message or a task.
-        if (text.length > SHORT_LENGTH) return parseDictated(original)
+        if (text.length > SHORT_LENGTH) return parseDictated(original) ?: deviceQuestion(text)
 
         ORGANIZE.matchEntire(text)?.let { return ToolCommand.SortApps }
         AGENDA.matchEntire(text)?.let { return ToolCommand.GetTodayAgenda }
@@ -133,7 +133,17 @@ class QuickCommandParser(
                 return ToolCommand.ContactAction(if (viaWhatsApp) ContactActionType.WHATSAPP else ContactActionType.CALL, name, null)
             }
         }
-        return null
+        return deviceQuestion(text)
+    }
+
+    /**
+     * A question about this phone's hardware ("which LLM can my phone run?", "is my battery running
+     * low?", "does my phone have enough RAM for games?"). It reads the phone's details first; the
+     * model then answers the question with them (read-only results are fed back), instead of
+     * deciding by itself whether to look, which a 1.7B model often doesn't.
+     */
+    private fun deviceQuestion(text: String): ToolCommand? = ToolCommand.GetDeviceInfo.takeIf {
+        betterAnswers && DEVICE_SUBJECT.containsMatchIn(text) && DEVICE_TOPIC.containsMatchIn(text) && !DEVICE_TASK.containsMatchIn(text)
     }
 
     /** Commands that can legitimately be long: a message to send or a task to add. */
@@ -236,6 +246,21 @@ class QuickCommandParser(
         )
         val NAMED_LIST = Regex("""^(?:show|open|view|see|check)\s+(?:me\s+)?(?:my\s+)?([a-z]+)\s+list$""")
         val NOT_LISTS = setOf("to", "my", "the", "play", "contact", "contacts", "favorites", "favourites", "block", "black", "white", "guest", "mailing", "email")
+        /** This phone, or one of its parts ("my battery"). Used with [DEVICE_TOPIC]. */
+        val DEVICE_SUBJECT = Regex(
+            """\b(?:my|this)\s+(?:phone|device|mobile|smartphone|handset)\b|\bmy\s+(?:battery|ram|memory|storage|processor|cpu|gpu|chip(?:set)?|specs?|specifications)\b|\b(?:device|phone)\s+(?:specs?|specifications)\b""",
+        )
+
+        /** What [deviceQuestion] can answer: hardware, its status, and which models or apps it can run. */
+        val DEVICE_TOPIC = Regex(
+            """\b(?:battery|ram|memory|storage|space left|free space|processor|cpu|gpu|chip(?:set)?|specs?|specifications|android version|llms?|ai models?|models?|run|handle|powerful|fast enough|enough)\b""",
+        )
+
+        /** Things to do with the phone's contents or settings: left to the model and the other tools. */
+        val DEVICE_TASK = Regex(
+            """\b(?:free up|clean|clear|delete|remove|largest|biggest|files?|photos?|pictures?|videos?|music|downloads?|apps?|wallpaper|ringtone|call|text|message|remind(?:er)?|alarm|timer|open|launch|turn|switch|toggle|wi-?fi|bluetooth|flashlight|torch|back ?up|reset|root|unlock)\b""",
+        )
+
         /** "when am I free tomorrow?", "do I have any free time on Friday afternoon?" */
         val FREE_TIME = Regex(
             """^(?:when am i free|am i free|when do i have (?:any |some )?free time|do i have (?:any |some )?free time|what free time do i have)""" +
