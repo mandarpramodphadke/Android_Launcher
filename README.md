@@ -728,6 +728,34 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 
 ## Verification performed
 
+1.6.1 (full version):
+
+- `assembleFullRelease` builds a **23.9 MB APK**, version 1.6.1 (8), signed with the same key,
+  16 KB aligned, with the same permissions as 1.6.0. Zero Kotlin compiler warnings; lint is clean
+  on both versions except for `OldTargetApi`.
+- **178 JVM unit tests pass on both versions** (1 JNI host test skipped unless configured). New:
+  the prompt switch, the phone and schedule questions that skip the model, broken tool calls, the
+  model advice, and the real agent with a scripted model calling a made-up tool.
+- **Replayed on the real Qwen3-1.7B (Q4_K_M, temperature 0.7, seeds 7, 11 and 23)** with the exact
+  prompts the app sends (exported by `ChatAgentPromptTest`, run with the host harness). Seven
+  prompt wordings were compared; the shipped one against the 1.6.0 prompt:
+
+  | Request | 1.6.0 prompt | 1.6.1 |
+  |---|---|---|
+  | RAM vs storage, credit scores in India, Python vs Java | refused 9 of 9 ("I do not have access to external information") | answered 9 of 9 |
+  | Which LLM suits my phone (the owner's question) | refused 3 of 3 | phone details read, 4B recommended for an 8 GB phone 3 of 3 |
+  | Why the sky is blue, charging overnight | answered 6 of 6 | answered 6 of 6 |
+  | A 3-day meal plan | refused 3 of 3 | written 3 of 3 |
+  | Plan a birthday party | booked a planner block 3 of 3 | written 3 of 3 |
+  | Is my battery low, enough RAM for games | "I cannot check" 6 of 6 | phone details read, real figures in the answer 6 of 6 |
+  | To-dos, planner, reminder, WhatsApp, open app, unused apps, notifications, today's schedule | right tool in all 16 runs measured | right tool 24 of 24 |
+  | When am I free tomorrow / on Friday | agenda 6 of 6 | the day's plan, without the model |
+  | An email to the landlord | an SMS card 3 of 3 | an SMS card 3 of 3 (needs confirming); after a made-up `write_email` call, the email written 3 of 3 |
+
+  The other wordings either still sent the meal or party plan to a tool, or made up a battery
+  level or RAM size (4 of 6 replies for one of them); the shipped wording made up none.
+- Not verified here: the answers on a physical phone, and phone details other than the sample.
+
 1.6.0 (full version):
 
 - `assembleFullRelease` builds a **23.9 MB APK**, version 1.6.0 (7), signed with the same key,
