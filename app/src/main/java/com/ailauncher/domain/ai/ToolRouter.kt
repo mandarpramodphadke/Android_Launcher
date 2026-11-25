@@ -28,7 +28,8 @@ import java.util.Locale
 
 sealed interface ToolRouting {
     data class Valid(val command: ToolCommand, val summary: String) : ToolRouting
-    data class Invalid(val toolName: String, val reason: String) : ToolRouting
+    /** [unknownTool]: the model named a tool that doesn't exist (not just bad arguments). */
+    data class Invalid(val toolName: String, val reason: String, val unknownTool: Boolean = false) : ToolRouting
 }
 
 /**
@@ -68,7 +69,7 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
                 valid(ToolCommand.SummarizeNotifications(call.arguments.firstString("appName", "app_name", "app")?.takeUnless { it.lowercase(Locale.ROOT) in ALL_APPS }))
             ToolNames.CONTACT_ACTION, "call_contact", "call", "send_sms", "send_message", "sms", "whatsapp", "text_contact", "message_contact" ->
                 valid(contactAction(call.arguments, call.name))
-            else -> ToolRouting.Invalid(call.name, "Unknown tool \"${call.name}\"")
+            else -> ToolRouting.Invalid(call.name, "Unknown tool \"${call.name}\"", unknownTool = true)
         }
     } catch (e: IllegalArgumentException) {
         ToolRouting.Invalid(call.name, e.message ?: "Invalid arguments")

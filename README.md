@@ -49,10 +49,16 @@ Full version first (flag `BETTER_ANSWERS`).
 - **"Which model can my phone run?"** A new read-only tool, `get_device_info`, gives the model
   this phone's specs (model, Android version, processor, GPU, RAM, storage, battery) and a verdict
   for each downloadable model: *best*, *good*, *tight* or *too big* for this phone's memory, and
-  whether there is room to download it. The model answers from that instead of guessing. "Battery
-  level", "phone specs" and "how much storage do I have" answer instantly without the model.
+  whether there is room to download it. Questions that name this phone and one of its parts
+  ("which LLM can my phone run?", "is my battery running low?", "does my phone have enough RAM
+  for games?") read these details first, and the model answers with them: left to decide, the
+  1.7B model often skipped the lookup or made up a battery level. "Battery level", "phone specs"
+  and "how much storage do I have" show the details instantly.
+- **"When am I free tomorrow?"** opens that day's plan with its free slots, without the model.
 - **Sturdier tool calls.** When the model writes a tool call that isn't valid JSON (seen:
-  `{"name": "get_device_info", "arguments": {""}}`), the tool name is still recovered.
+  `{"name": "get_device_info", "arguments": {""}}`), the tool name is still recovered. When it
+  calls a tool that doesn't exist (asked to write an email, it tried `write_email`), it is told so
+  the way a tool would answer and writes the reply itself; only that reply reaches the chat.
 - With the flag off (the Play version), the prompt and tool list stay byte for byte as in 1.6.0.
 
 ---

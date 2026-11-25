@@ -228,9 +228,11 @@ class ChatAgent @Inject constructor(
 
         val raw = StringBuilder()
         var stats: GenerationStats? = null
-        try {
-            val folders = folderContext(history.lastOrNull { it.role == ChatRole.USER }?.content)
-            var window = trimToContext(history, mode)
+        val folders = folderContext(history.lastOrNull { it.role == ChatRole.USER }?.content)
+
+        /** Streams one completion for [turns] into [raw]; returns the turns that fitted the context. */
+        suspend fun stream(turns: List<ChatMessage>): List<ChatMessage> {
+            var window = turns
             while (true) {
                 val prompt = buildPrompt(window, mode, folders)
                 val params = paramsFor(mode, prompt)
@@ -244,12 +246,28 @@ class ChatAgent @Inject constructor(
                             is GenerationEvent.Completed -> stats = event.stats
                         }
                     }
-                    break
+                    return window
                 } catch (e: LlmException.ContextOverflow) {
                     val shorter = dropOldestTurn(window)
                     if (shorter.size == window.size || raw.isNotEmpty()) throw e
                     window = shorter
                 }
+            }
+        }
+
+        try {
+            val window = stream(trimToContext(history, mode))
+            // Asked to write an email, the 1.7B model sometimes calls a tool that doesn't exist
+            // ("write_email"). Tell it so, the way a tool would, and keep only its second answer.
+            val madeUp = if (features.betterAnswers && stats?.stopReason != StopReason.CANCELLED) {
+                madeUpToolCalls(ModelOutputParser.parse(raw.toString()))
+            } else {
+                null
+            }
+            if (madeUp != null) {
+                raw.setLength(0)
+                stats = null
+                stream(window + message.copy(toolCalls = madeUp, status = MessageStatus.COMPLETE))
             }
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
@@ -305,6 +323,25 @@ class ChatAgent @Inject constructor(
         chatRepository.update(final)
         _streaming.value = null
         return final
+    }
+
+    /**
+     * The calls of a reply that only calls tools that don't exist, as failed calls whose result
+     * tells the model to answer itself; null when the reply has text or a real tool call.
+     */
+    private fun madeUpToolCalls(parsed: ParsedOutput): List<ToolInvocation>? {
+        if (parsed.answer.isNotBlank() || parsed.toolCalls.isEmpty()) return null
+        if (!parsed.toolCalls.all { (toolRouter.route(it) as? ToolRouting.Invalid)?.unknownTool == true }) return null
+        return parsed.toolCalls.map { call ->
+            ToolInvocation(
+                id = newId(),
+                name = call.name,
+                arguments = call.arguments,
+                status = ToolStatus.FAILED,
+                summary = call.name,
+                resultMessage = "There is no ${call.name} tool. Reply to the user directly, writing out what they asked for.",
+            )
+        }
     }
 
     private suspend fun runInvocation(messageId: Long, invocation: ToolInvocation): ToolInvocation {
