@@ -1,6 +1,5 @@
 package com.ailauncher.data.actions
 
-import com.ailauncher.domain.usecase.FreeSlots
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -31,11 +30,13 @@ import com.ailauncher.domain.repository.PlannerRepository
 import com.ailauncher.domain.repository.SettingsRepository
 import com.ailauncher.domain.repository.TodoRepository
 import com.ailauncher.domain.search.FuzzyMatcher
+import com.ailauncher.domain.usecase.FreeSlots
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -153,7 +154,11 @@ class LauncherToolExecutor @Inject constructor(
         } else {
             "${result.files.size} largest ${c.fileType.displayName} · ${formatBytes(total)} in total"
         }
-        return ActionResult.ok(message, filesData(result.files, result.accessLevel, c.fileType), filesDisplay("largest_files", result.files, result.accessLevel))
+        return ActionResult.ok(
+            message,
+            filesData(result.files, result.accessLevel, c.fileType, searchedFolders(result.accessLevel)),
+            filesDisplay("largest_files", result.files, result.accessLevel),
+        )
     }
 
     suspend fun queryFiles(c: ToolCommand.QueryFilesByActivity): ActionResult {
@@ -180,8 +185,18 @@ class LauncherToolExecutor @Inject constructor(
             FileActivityMode.OPENED_OR_CLICKED -> "${found.size} $what opened ${rangeText(c)}"
             FileActivityMode.MODIFIED_RANGE -> "${found.size} $what changed ${rangeText(c)}"
         }
-        return ActionResult.ok(message, filesData(found, level, c.fileType), filesDisplay("file_query", found, level))
+        val data = filesData(found, level, c.fileType, searchedFolders(level))
+        val withNote = if (level == FileAccessLevel.FOLDERS && c.mode == FileActivityMode.DOWNLOADED) {
+            JsonObject(data + ("note" to JsonPrimitive("Android doesn't let apps read the Download folder; only Download folders inside the chosen folders were searched.")))
+        } else {
+            data
+        }
+        return ActionResult.ok(message, withNote, filesDisplay("file_query", found, level))
     }
+
+    /** Google Play build: the folders the user picked, e.g. "DCIM, Movies". */
+    private suspend fun searchedFolders(level: FileAccessLevel): String? =
+        if (level == FileAccessLevel.FOLDERS) files.searchFolders.first().joinToString { it.name }.takeIf { it.isNotBlank() } else null
 
     private fun startOf(date: LocalDate?): Long = (date ?: LocalDate.now(zone).minusDays(6)).atStartOfDay(zone).toInstant().toEpochMilli()
     private fun endOf(date: LocalDate?): Long = (date ?: LocalDate.now(zone)).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
@@ -192,9 +207,10 @@ class LauncherToolExecutor @Inject constructor(
         return if (start == end) "on $start" else "from $start to $end"
     }
 
-    private fun filesData(found: List<FileEntry>, level: FileAccessLevel, type: FileTypeFilter): JsonObject = buildJsonObject {
+    private fun filesData(found: List<FileEntry>, level: FileAccessLevel, type: FileTypeFilter, folders: String?): JsonObject = buildJsonObject {
         put("count", found.size)
         put("total_size", formatBytes(found.sumOf { it.sizeBytes }))
+        folders?.let { put("searched_folders", it) }
         if (level == FileAccessLevel.MEDIA_ONLY && type in setOf(FileTypeFilter.ALL, FileTypeFilter.DOCUMENT, FileTypeFilter.ARCHIVE)) {
             put("note", "Only photos, videos and audio are visible; documents and archives need All files access.")
         }
@@ -215,7 +231,11 @@ class LauncherToolExecutor @Inject constructor(
     private fun filesDisplay(kind: String, found: List<FileEntry>, level: FileAccessLevel): JsonObject = buildJsonObject {
         put("kind", kind)
         put("access", level.name)
-        if (level == FileAccessLevel.MEDIA_ONLY) put("needs", NEEDS_ALL_FILES)
+        when {
+            level == FileAccessLevel.MEDIA_ONLY -> put("needs", NEEDS_ALL_FILES)
+            // Nothing in the chosen folders: offer to add more.
+            level == FileAccessLevel.FOLDERS && found.isEmpty() -> put("needs", NEEDS_FOLDERS)
+        }
         putJsonArray("files") {
             found.forEach { f ->
                 add(
@@ -234,11 +254,19 @@ class LauncherToolExecutor @Inject constructor(
         }
     }
 
-    private fun needsFileAccess() = ActionResult(
-        success = false,
-        message = "Allow access to your photos, videos and audio to search files.",
-        display = buildJsonObject { put("needs", NEEDS_MEDIA) },
-    )
+    private fun needsFileAccess() = if (files.usesPickedFolders) {
+        ActionResult(
+            success = false,
+            message = "Choose the folders I may search first, for example DCIM, Movies or Documents.",
+            display = buildJsonObject { put("needs", NEEDS_FOLDERS) },
+        )
+    } else {
+        ActionResult(
+            success = false,
+            message = "Allow access to your photos, videos and audio to search files.",
+            display = buildJsonObject { put("needs", NEEDS_MEDIA) },
+        )
+    }
 
     // ==================================================================================== to-dos
 
@@ -514,6 +542,7 @@ class LauncherToolExecutor @Inject constructor(
         const val NEEDS_ALL_FILES = "all_files"
         const val NEEDS_NOTIFICATION_ACCESS = "notification_access"
         const val NEEDS_CONTACTS = "contacts"
+        const val NEEDS_FOLDERS = "folders"
 
         private const val DAY_MILLIS = 86_400_000L
         private const val LOOKBACK_DAYS = 400L

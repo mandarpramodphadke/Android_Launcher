@@ -6,39 +6,45 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.ailauncher.BuildConfig
 import com.ailauncher.data.llm.DeviceResources
+import com.ailauncher.data.report.ReportFormTemplate
 import com.ailauncher.data.share.SharedPayload
 import com.ailauncher.domain.ai.LlmEngine
 import com.ailauncher.domain.clipboard.ClipAction
 import com.ailauncher.domain.clipboard.ClipboardAnalyzer
-import com.ailauncher.domain.model.FileEntry
-import com.ailauncher.domain.repository.AppRepository
-import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.ChatRole
+import com.ailauncher.domain.model.ContentReport
 import com.ailauncher.domain.model.DeviceHealth
 import com.ailauncher.domain.model.EngineState
+import com.ailauncher.domain.model.FileEntry
 import com.ailauncher.domain.model.InferenceMode
 import com.ailauncher.domain.model.MessageStatus
+import com.ailauncher.domain.model.ReportOutcome
+import com.ailauncher.domain.model.ReportReason
+import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.ChatRepository
+import com.ailauncher.domain.repository.ContentReportRepository
+import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.repository.SettingsRepository
 import com.ailauncher.domain.usecase.ChatAgent
 import com.ailauncher.presentation.navigation.ChatRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -59,6 +65,8 @@ data class ChatUiState(
     val health: DeviceHealth? = null,
     val lastTokensPerSecond: Float? = null,
     val saveRemindersToCalendar: Boolean = true,
+    /** Replies the user reported (hidden behind "Show"). */
+    val reportedIds: Set<Long> = emptySet(),
 )
 
 @HiltViewModel
@@ -71,6 +79,7 @@ class ChatViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val appRepository: AppRepository,
     private val fileRepository: FileRepository,
+    private val reports: ContentReportRepository,
     sharedContent: SharedContentStore,
 ) : ViewModel() {
 
@@ -114,12 +123,12 @@ class ChatViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<ChatUiState> = combine(
-        messages,
+        combine(messages, reports.reportedMessageIds, ::Pair),
         agent.busy,
         llm.state,
         health,
         combine(mode, settingsRepository.launcherSettings) { m, s -> m to s.saveRemindersToCalendar },
-    ) { list, busy, engine, h, (m, calendar) ->
+    ) { (list, reported), busy, engine, h, (m, calendar) ->
         ChatUiState(
             messages = list,
             mode = m,
@@ -130,6 +139,7 @@ class ChatViewModel @Inject constructor(
                 it.message.role == ChatRole.ASSISTANT && it.message.status == MessageStatus.COMPLETE && it.message.tokensPerSecond != null
             }?.message?.tokensPerSecond,
             saveRemindersToCalendar = calendar,
+            reportedIds = reported,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState())
 
@@ -228,6 +238,47 @@ class ChatViewModel @Inject constructor(
                 ),
                 accessType,
             )
+        }
+    }
+
+    /** Without a report form in this build, "Send report" opens an email draft instead. */
+    val reportsOpenEmail: Boolean = ReportFormTemplate.parse(BuildConfig.REPORT_FORM_URL) == null && BuildConfig.SUPPORT_EMAIL.isNotBlank()
+
+    private val _emailReports = Channel<ReportOutcome.Email>(Channel.BUFFERED)
+    /** Reports to finish in the email app (no in-app report channel configured in this build). */
+    val emailReports: Flow<ReportOutcome.Email> = _emailReports.receiveAsFlow()
+
+    /** Reports an assistant reply (Google Play AI-content policy). Sends only what the dialog listed. */
+    fun report(messageId: Long, reason: ReportReason, details: String?, includeQuestion: Boolean) {
+        viewModelScope.launch {
+            val history = chatRepository.observeMessages(ChatRepository.DEFAULT_CONVERSATION).first()
+            val index = history.indexOfFirst { it.id == messageId }
+            val reply = history.getOrNull(index) ?: return@launch
+            val question = if (includeQuestion) history.take(index).lastOrNull { it.role == ChatRole.USER }?.content else null
+            val model = settingsRepository.modelConfig.first().activeModelId
+            val flavor = if (BuildConfig.PLAY_BUILD) "play" else "full"
+            val outcome = reports.submit(
+                ContentReport(
+                    messageId = messageId,
+                    reason = reason,
+                    details = details?.trim()?.takeIf { it.isNotEmpty() },
+                    question = question,
+                    reply = reply.content,
+                    appInfo = "AI Launcher ${BuildConfig.VERSION_NAME} ($flavor) · $model",
+                ),
+            )
+            when (outcome) {
+                ReportOutcome.Queued -> _notices.send("Thanks. Your report will be sent to the developer")
+                is ReportOutcome.Email -> _emailReports.send(outcome)
+                ReportOutcome.SavedOnly -> _notices.send("Reply hidden. Reporting isn't set up in this build")
+            }
+        }
+    }
+
+    /** A folder picked from a file tool's "Choose folders" button (Google Play build); asks again. */
+    fun addSearchFolder(uri: String) {
+        viewModelScope.launch {
+            if (fileRepository.addSearchFolder(uri)) retryLast() else _notices.send("That folder can't be searched")
         }
     }
 

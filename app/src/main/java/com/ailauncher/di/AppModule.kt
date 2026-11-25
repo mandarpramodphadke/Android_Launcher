@@ -30,6 +30,7 @@ import com.ailauncher.data.home.DockRepositoryImpl
 import com.ailauncher.data.home.FolderRepositoryImpl
 import com.ailauncher.data.home.HomeLayoutRepositoryImpl
 import com.ailauncher.data.notifications.NotificationDigestRepositoryImpl
+import com.ailauncher.data.report.ContentReportRepositoryImpl
 import com.ailauncher.data.packages.AppLauncher
 import com.ailauncher.data.packages.ShortcutRepositoryImpl
 import com.ailauncher.data.productivity.PlannerRepositoryImpl
@@ -39,6 +40,7 @@ import com.ailauncher.domain.action.ActionExecutor
 import com.ailauncher.domain.action.LauncherNavigator
 import com.ailauncher.domain.repository.AppUsageRepository
 import com.ailauncher.domain.repository.ContactRepository
+import com.ailauncher.domain.repository.ContentReportRepository
 import com.ailauncher.domain.repository.DockRepository
 import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.repository.FolderRepository
@@ -165,4 +167,5 @@ abstract class BindingsModule {
     @Binds abstract fun shortcutRepository(impl: ShortcutRepositoryImpl): ShortcutRepository
     @Binds abstract fun appLauncher(impl: PackageRepository): AppLauncher
     @Binds abstract fun launcherNavigator(impl: LauncherNavigatorImpl): LauncherNavigator
+    @Binds abstract fun contentReportRepository(impl: ContentReportRepositoryImpl): ContentReportRepository
 }

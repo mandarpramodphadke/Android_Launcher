@@ -4,31 +4,45 @@ import android.Manifest
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.SystemClock
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
+import com.ailauncher.BuildConfig
 import com.ailauncher.data.local.dao.FileAccessDao
 import com.ailauncher.data.local.entity.RecentFileAccessEntity
+import com.ailauncher.domain.files.FileSelection
+import com.ailauncher.domain.files.FileTypes
 import com.ailauncher.domain.model.FileAccessLevel
 import com.ailauncher.domain.model.FileEntry
 import com.ailauncher.domain.model.FileQueryResult
 import com.ailauncher.domain.model.FileTypeFilter
+import com.ailauncher.domain.model.SearchFolder
 import com.ailauncher.domain.repository.FileRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Storage insights over MediaStore. With media permissions it sees photos, videos and audio; with
- * "All files access" (optional) it also sees documents and archives. MediaStore has no
- * "last opened" column, so files opened or shared through the launcher are logged in Room.
+ * Storage insights. The full build reads MediaStore: with media permissions it sees photos, videos
+ * and audio; with "All files access" (optional) also documents and archives. The Google Play build
+ * declares no storage permission and walks only the folders the user picked ([DocumentTreeScanner]).
+ * Neither has a "last opened" column, so files opened or shared through the launcher are logged
+ * in Room.
  */
 @Singleton
 class FileRepositoryImpl @Inject constructor(
@@ -39,7 +53,24 @@ class FileRepositoryImpl @Inject constructor(
     private val resolver: ContentResolver get() = context.contentResolver
     private val filesUri: Uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
 
-    override fun accessLevel(): FileAccessLevel = when {
+    override val usesPickedFolders: Boolean = !BuildConfig.BROAD_FILE_ACCESS
+
+    private val folderVersion = MutableStateFlow(0)
+    override val searchFolders: Flow<List<SearchFolder>> = folderVersion
+        .map { pickedFolders() }
+        .flowOn(Dispatchers.IO)
+
+    private data class ScanCache(val key: String, val atMillis: Long, val files: List<FileEntry>)
+
+    @Volatile private var scanCache: ScanCache? = null
+
+    override fun accessLevel(): FileAccessLevel = if (usesPickedFolders) {
+        if (grantedTrees().isNotEmpty()) FileAccessLevel.FOLDERS else FileAccessLevel.NONE
+    } else {
+        mediaStoreAccessLevel()
+    }
+
+    private fun mediaStoreAccessLevel(): FileAccessLevel = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager() -> FileAccessLevel.ALL_FILES
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
             if (listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO).any(::granted)) {
@@ -56,11 +87,76 @@ class FileRepositoryImpl @Inject constructor(
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
+    // ------------------------------------------------------------- picked folders (Play build)
+
+    private fun grantedTrees(): List<Uri> = runCatching {
+        resolver.persistedUriPermissions
+            .filter { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) }
+            .map { it.uri }
+    }.getOrDefault(emptyList())
+
+    private fun pickedFolders(): List<SearchFolder> = grantedTrees().map { SearchFolder(it.toString(), folderName(it)) }
+
+    private fun folderName(tree: Uri): String {
+        val treeId = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull().orEmpty()
+        val queried = runCatching {
+            val document = DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
+            resolver.query(document, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+        // e.g. "primary:DCIM/Camera" -> "Camera"
+        return queried?.takeIf { it.isNotBlank() } ?: treeId.substringAfterLast(':').substringAfterLast('/').ifBlank { "Folder" }
+    }
+
+    override suspend fun addSearchFolder(uri: String): Boolean = withContext(Dispatchers.IO) {
+        val granted = runCatching {
+            resolver.takePersistableUriPermission(uri.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }.isSuccess
+        scanCache = null
+        folderVersion.value++
+        granted
+    }
+
+    override suspend fun removeSearchFolder(uri: String) = withContext(Dispatchers.IO) {
+        runCatching { resolver.releasePersistableUriPermission(uri.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        scanCache = null
+        folderVersion.value++
+        Unit
+    }
+
+    /** Every file in the picked folders; reused for a minute so follow-up questions are instant. */
+    private suspend fun folderFiles(): List<FileEntry> = withContext(Dispatchers.IO) {
+        val trees = grantedTrees()
+        val key = trees.joinToString("|")
+        val now = SystemClock.elapsedRealtime()
+        scanCache?.takeIf { it.key == key && now - it.atMillis < SCAN_CACHE_MILLIS }?.let { return@withContext it.files }
+        val files = DocumentTreeScanner(resolver).scan(trees.map { it to folderName(it) }).files
+        scanCache = ScanCache(key, now, files)
+        files
+    }
+
+    private suspend fun fromFolders(select: suspend (List<FileEntry>) -> List<FileEntry>): FileQueryResult {
+        val level = accessLevel()
+        if (level == FileAccessLevel.NONE) return FileQueryResult(emptyList(), level)
+        return FileQueryResult(select(folderFiles()), level)
+    }
+
+    private suspend fun recentlyOpenedSince(cutoffMillis: Long): Set<String> = withContext(Dispatchers.IO) {
+        accessDao.lastAccessByUri().filter { it.lastAccess >= cutoffMillis }.mapTo(HashSet()) { it.uri }
+    }
+
+    // --------------------------------------------------------------------------------- queries
+
     override suspend fun largest(limit: Int, type: FileTypeFilter): FileQueryResult =
-        query(typeSelection(type), emptyList(), "${MediaStore.MediaColumns.SIZE} DESC", limit)
+        if (usesPickedFolders) {
+            fromFolders { FileSelection.largest(it, type, limit) }
+        } else {
+            query(typeSelection(type), emptyList(), "${MediaStore.MediaColumns.SIZE} DESC", limit)
+        }
 
     override suspend fun modifiedBetween(startMillis: Long, endMillis: Long, type: FileTypeFilter, limit: Int): FileQueryResult =
-        query(
+        if (usesPickedFolders) fromFolders { FileSelection.modifiedBetween(it, startMillis, endMillis, type, limit) } else query(
             and(typeSelection(type), "${MediaStore.MediaColumns.DATE_MODIFIED} >= ? AND ${MediaStore.MediaColumns.DATE_MODIFIED} < ?"),
             listOf((startMillis / 1000).toString(), (endMillis / 1000).toString()),
             "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
@@ -68,6 +164,7 @@ class FileRepositoryImpl @Inject constructor(
         )
 
     override suspend fun downloadedBetween(startMillis: Long, endMillis: Long, type: FileTypeFilter, limit: Int): FileQueryResult {
+        if (usesPickedFolders) return fromFolders { FileSelection.downloadedBetween(it, startMillis, endMillis, type, limit) }
         val download = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             "${MediaStore.MediaColumns.IS_DOWNLOAD} = 1"
         } else {
@@ -82,6 +179,10 @@ class FileRepositoryImpl @Inject constructor(
     }
 
     override suspend fun notModifiedSince(cutoffMillis: Long, type: FileTypeFilter, limit: Int): FileQueryResult {
+        if (usesPickedFolders) {
+            val opened = recentlyOpenedSince(cutoffMillis)
+            return fromFolders { FileSelection.notModifiedSince(it, cutoffMillis, type, limit, opened) }
+        }
         // Over-fetch (largest first: those are worth cleaning up), then drop recently opened ones.
         val result = query(
             and(typeSelection(type), "${MediaStore.MediaColumns.DATE_MODIFIED} < ?"),
@@ -89,9 +190,7 @@ class FileRepositoryImpl @Inject constructor(
             "${MediaStore.MediaColumns.SIZE} DESC",
             limit * 3,
         )
-        val recentlyOpened = withContext(Dispatchers.IO) {
-            accessDao.lastAccessByUri().filter { it.lastAccess >= cutoffMillis }.mapTo(HashSet()) { it.uri }
-        }
+        val recentlyOpened = recentlyOpenedSince(cutoffMillis)
         return result.copy(files = result.files.filterNot { it.uri in recentlyOpened }.take(limit))
     }
 
@@ -99,7 +198,7 @@ class FileRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             accessDao.between(startMillis, endMillis)
                 .distinctBy { it.uri }
-                .filter { matchesType(it.mimeType, it.displayName, type) }
+                .filter { FileTypes.matches(it.mimeType, it.displayName, type) }
                 .take(limit)
                 .map {
                     FileEntry(
@@ -201,18 +300,7 @@ class FileRepositoryImpl @Inject constructor(
 
     companion object {
         private const val ACCESS_LOG_RETENTION_MILLIS = 180L * 24 * 3_600_000
-
-        private val DOCUMENT_MIMES = listOf(
-            "application/pdf", "application/msword", "application/rtf", "application/epub+zip",
-            "application/vnd.ms-excel", "application/vnd.ms-powerpoint", "text/plain", "text/csv",
-            "application/vnd.oasis.opendocument.text", "application/vnd.oasis.opendocument.spreadsheet",
-        )
-        private val ARCHIVE_MIMES = listOf(
-            "application/zip", "application/x-zip-compressed", "application/x-rar-compressed", "application/vnd.rar",
-            "application/x-7z-compressed", "application/gzip", "application/x-gzip", "application/x-tar",
-            "application/x-bzip2", "application/vnd.android.package-archive",
-        )
-        private val ARCHIVE_EXTENSIONS = listOf("zip", "rar", "7z", "gz", "tgz", "tar", "bz2", "xz", "apk", "apks", "xapk")
+        private const val SCAN_CACHE_MILLIS = 60_000L
 
         private fun quoted(values: List<String>) = values.joinToString(",") { "'$it'" }
 
@@ -227,22 +315,9 @@ class FileRepositoryImpl @Inject constructor(
                 FileTypeFilter.VIDEO -> "$mediaType = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}"
                 FileTypeFilter.AUDIO -> "$mediaType = ${MediaStore.Files.FileColumns.MEDIA_TYPE_AUDIO}"
                 FileTypeFilter.DOCUMENT ->
-                    "($mime IN (${quoted(DOCUMENT_MIMES)}) OR $mime LIKE 'application/vnd.openxmlformats-officedocument.%')"
+                    "($mime IN (${quoted(FileTypes.DOCUMENT_MIMES)}) OR $mime LIKE 'application/vnd.openxmlformats-officedocument.%')"
                 FileTypeFilter.ARCHIVE ->
-                    "($mime IN (${quoted(ARCHIVE_MIMES)}) OR " + ARCHIVE_EXTENSIONS.joinToString(" OR ") { "$name LIKE '%.$it'" } + ")"
-            }
-        }
-
-        fun matchesType(mimeType: String?, name: String, type: FileTypeFilter): Boolean {
-            val mime = mimeType.orEmpty()
-            val extension = name.substringAfterLast('.', "").lowercase()
-            return when (type) {
-                FileTypeFilter.ALL -> true
-                FileTypeFilter.IMAGE -> mime.startsWith("image/")
-                FileTypeFilter.VIDEO -> mime.startsWith("video/")
-                FileTypeFilter.AUDIO -> mime.startsWith("audio/")
-                FileTypeFilter.DOCUMENT -> mime in DOCUMENT_MIMES || mime.startsWith("application/vnd.openxmlformats-officedocument.")
-                FileTypeFilter.ARCHIVE -> mime in ARCHIVE_MIMES || extension in ARCHIVE_EXTENSIONS
+                    "($mime IN (${quoted(FileTypes.ARCHIVE_MIMES)}) OR " + FileTypes.ARCHIVE_EXTENSIONS.joinToString(" OR ") { "$name LIKE '%.$it'" } + ")"
             }
         }
 

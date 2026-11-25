@@ -7,15 +7,25 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -26,6 +36,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import coil3.annotation.ExperimentalCoilApi
@@ -33,35 +44,48 @@ import coil3.asImage
 import coil3.compose.AsyncImagePreviewHandler
 import coil3.compose.LocalAsyncImagePreviewHandler
 import com.ailauncher.data.packages.AppIconData
+import com.ailauncher.domain.ai.ToolNames
 import com.ailauncher.domain.model.AppCategory
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.AppTheme
 import com.ailauncher.domain.model.CategorizationProgress
 import com.ailauncher.domain.model.CategorySource
-import com.ailauncher.domain.model.DrawerLayout
-import com.ailauncher.domain.model.DrawerTab
-import com.ailauncher.domain.model.IconStyle
-import com.ailauncher.domain.model.LauncherSettings
-import com.ailauncher.domain.model.ThemeMode
-import com.ailauncher.domain.model.UpcomingEvent
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.text.input.rememberTextFieldState
+import com.ailauncher.domain.model.ChatMessage
+import com.ailauncher.domain.model.ChatRole
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
+import com.ailauncher.domain.model.DrawerLayout
+import com.ailauncher.domain.model.DrawerTab
+import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.FolderAccent
 import com.ailauncher.domain.model.GridPosition
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.IconStyle
+import com.ailauncher.domain.model.InferenceMode
+import com.ailauncher.domain.model.LauncherSettings
+import com.ailauncher.domain.model.MessageStatus
+import com.ailauncher.domain.model.ModelRuntimeInfo
 import com.ailauncher.domain.model.PlannerBlock
 import com.ailauncher.domain.model.SmartExtraction
 import com.ailauncher.domain.model.SmartPill
+import com.ailauncher.domain.model.ThemeMode
+import com.ailauncher.domain.model.ToolInvocation
+import com.ailauncher.domain.model.ToolStatus
+import com.ailauncher.domain.model.UpcomingEvent
+import com.ailauncher.presentation.chat.ChatInput
+import com.ailauncher.presentation.chat.ChatMessageList
+import com.ailauncher.presentation.chat.ChatMessageUi
+import com.ailauncher.presentation.chat.ChatUiState
+import com.ailauncher.presentation.chat.ToolCardCallbacks
+import com.ailauncher.presentation.components.EngineStatusChip
 import com.ailauncher.presentation.drawer.AlphaSection
-import com.ailauncher.presentation.drawer.DrawerCallbacks
-import com.ailauncher.presentation.home.Glance
-import com.ailauncher.presentation.home.HomeCallbacks
 import com.ailauncher.presentation.drawer.CategorySection
+import com.ailauncher.presentation.drawer.DrawerCallbacks
 import com.ailauncher.presentation.drawer.DrawerContent
 import com.ailauncher.presentation.drawer.DrawerUiState
+import com.ailauncher.presentation.home.Glance
+import com.ailauncher.presentation.home.HomeCallbacks
 import com.ailauncher.presentation.home.HomeContent
 import com.ailauncher.presentation.home.HomeUiState
 import com.ailauncher.presentation.settings.ThemePicker
@@ -69,6 +93,10 @@ import com.ailauncher.presentation.theme.AiLauncherTheme
 import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.theme.WallpaperTint
 import com.google.common.truth.Truth.assertWithMessage
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -128,6 +156,12 @@ class ThemeScreenshotTest {
             add(Shot("drawer-minimal-mono-light") { Drawer(settings(AppTheme.MONOCHROME, ThemeMode.LIGHT).copy(minimalMode = true), DrawerTab.CATEGORIES, DrawerLayout.GRID) })
             add(Shot("drawer-monochrome-greyscale-icons") { Drawer(settings(AppTheme.MONOCHROME, ThemeMode.DARK).copy(iconStyle = IconStyle.GRAYSCALE), DrawerTab.ALPHABETICAL, DrawerLayout.GRID) })
 
+            // Store listing renders: a full first page of apps instead of the test's widget placeholders.
+            add(Shot("store-home-material-you") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, items = StoreHomeItems) })
+            add(Shot("store-home-neon") { Home(settings(AppTheme.NEON), DarkWallpaper, WallpaperTint.Light, items = StoreHomeItems) })
+            add(Shot("chat-material-you-unused-apps") { Chat(settings(AppTheme.MATERIAL_YOU, ThemeMode.DARK), UnusedAppsConversation) })
+            add(Shot("chat-classic-light-day-plan") { Chat(settings(AppTheme.CLASSIC, ThemeMode.LIGHT), DayPlanConversation) })
+
             add(Shot("settings-theme-picker-light") { Picker(settings(AppTheme.COLORFUL, ThemeMode.LIGHT)) })
             add(Shot("settings-theme-picker-dark") { Picker(settings(AppTheme.NEON, ThemeMode.DARK)) })
         }
@@ -151,7 +185,7 @@ class ThemeScreenshotTest {
     // ------------------------------------------------------------------------------------ scenes
 
     @Composable
-    private fun Home(settings: LauncherSettings, wallpaper: Brush, tint: WallpaperTint, page: Int = 0) {
+    private fun Home(settings: LauncherSettings, wallpaper: Brush, tint: WallpaperTint, page: Int = 0, items: List<HomeItem> = HomeItems) {
         AiLauncherTheme(settings) {
             Box(Modifier.fillMaxSize().background(wallpaper)) {
                 HomeContent(
@@ -162,7 +196,7 @@ class ThemeScreenshotTest {
                         dock = Apps.filter { it.isInDock }.sortedBy { it.dockPosition }.take(4).map { DockEntry.App(it) } +
                             DockEntry.Folder(WorkFolder.copy(dockPosition = 4)),
                         apps = Apps.associateBy { it.componentKey },
-                        homeItems = HomeItems,
+                        homeItems = items,
                         pageCount = 2,
                         folders = mapOf(WorkFolder.id to WorkFolder, TravelFolder.id to TravelFolder),
                         pills = listOf(SmartPill("otp", "Bank", SmartExtraction.Otp("482913"), Now.toInstant().toEpochMilli())),
@@ -213,6 +247,51 @@ class ThemeScreenshotTest {
                     queryState = rememberTextFieldState(),
                     minimal = settings.minimalMode,
                     callbacks = DrawerCallbacks(),
+                )
+            }
+        }
+    }
+
+    /** The assistant screen as the app draws it (top bar, conversation, input with quick actions). */
+    @Composable
+    private fun Chat(settings: LauncherSettings, conversation: List<ChatMessageUi>) {
+        AiLauncherTheme(settings) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Aura")
+                                Spacer(Modifier.width(12.dp))
+                                EngineStatusChip(EngineState.Ready(RuntimeInfo, null), null, onClick = {})
+                            }
+                        },
+                    )
+                },
+                bottomBar = {
+                    ChatInput(
+                        state = rememberTextFieldState(),
+                        busy = false,
+                        reasoning = false,
+                        onToggleReasoning = {},
+                        onSend = {},
+                        onStop = {},
+                        onQuickAction = {},
+                    )
+                },
+            ) { padding ->
+                ChatMessageList(
+                    state = ChatUiState(messages = conversation, engine = EngineState.Ready(RuntimeInfo, null)),
+                    shared = null,
+                    listState = rememberLazyListState(),
+                    padding = padding,
+                    cardCallbacks = ToolCardCallbacks(),
+                    onConfirm = { _, _ -> },
+                    onCancel = { _, _ -> },
+                    onReport = {},
+                    onSharedAction = {},
+                    onSharedDismiss = {},
+                    onOpenModelSetup = {},
                 )
             }
         }
@@ -326,6 +405,16 @@ class ThemeScreenshotTest {
             app("Notion", null),
         )
 
+        val StoreHomeItems = buildList {
+            add(HomeItem(1, GridPosition(page = 0, x = 0, y = 2), HomeItemContent.Folder(WorkFolder.id)))
+            add(HomeItem(2, GridPosition(page = 0, x = 1, y = 2), HomeItemContent.Folder(TravelFolder.id)))
+            // Calendar, WhatsApp, Instagram, YouTube, Photos, Maps, Fit, Duolingo, News, Files.
+            listOf(5, 8, 9, 13, 14, 16, 17, 18, 19, 21).forEachIndexed { index, app ->
+                val cell = index + 2
+                add(HomeItem(10L + index, GridPosition(page = 0, x = cell % 4, y = 2 + cell / 4), HomeItemContent.App(Apps[app].componentKey)))
+            }
+        }
+
         /** Page 1: a folder, apps and a 4×2 widget under the clock; page 2: a folder, an app and a widget. */
         val HomeItems = listOf(
             HomeItem(1, GridPosition(page = 0, x = 0, y = 2), HomeItemContent.Folder(WorkFolder.id)),
@@ -336,6 +425,102 @@ class ThemeScreenshotTest {
             HomeItem(6, GridPosition(page = 1, x = 0, y = 0), HomeItemContent.Folder(TravelFolder.id)),
             HomeItem(7, GridPosition(page = 1, x = 1, y = 0), HomeItemContent.App(Apps[16].componentKey)),
             HomeItem(8, GridPosition(page = 1, x = 0, y = 1, spanX = 2, spanY = 2), HomeItemContent.Widget(8, "com.example.notes/.Widget")),
+        )
+
+        val RuntimeInfo = ModelRuntimeInfo(
+            name = "Qwen3-1.7B",
+            description = "qwen3 1.7B Q4_K - Medium",
+            contextSize = 4096,
+            threads = 4,
+            kvCacheType = "q8_0",
+            sizeBytes = 1_101_457_408,
+            parameterCount = 1_720_574_976,
+        )
+
+        private fun message(id: Long, role: ChatRole, content: String, tools: List<ToolInvocation> = emptyList(), tps: Float? = null) =
+            ChatMessageUi(
+                ChatMessage(
+                    id = id,
+                    conversationId = "default",
+                    role = role,
+                    content = content,
+                    thinking = null,
+                    toolCalls = tools,
+                    status = MessageStatus.COMPLETE,
+                    mode = if (role == ChatRole.ASSISTANT) InferenceMode.FAST_ACTION else null,
+                    tokensPerSecond = tps,
+                    createdAt = 0,
+                ),
+            )
+
+        private fun unusedApp(label: String, daysAgo: Long, mb: Long) = buildJsonObject {
+            val pkg = "com.example.${label.lowercase().filter { it.isLetter() }}"
+            put("componentKey", "$pkg/.Main")
+            put("packageName", pkg)
+            put("label", label)
+            put("lastUsedAt", Now.minusDays(daysAgo).toInstant().toEpochMilli())
+            put("sizeBytes", mb * 1_000_000)
+        }
+
+        val UnusedAppsConversation = listOf(
+            message(1, ChatRole.USER, "Which apps haven't I used in a month?"),
+            message(
+                2,
+                ChatRole.ASSISTANT,
+                "You haven't opened these 4 apps in over 30 days. Together they take about 1.2 GB.",
+                listOf(
+                    ToolInvocation(
+                        id = "t1",
+                        name = ToolNames.LIST_UNUSED_APPS,
+                        arguments = buildJsonObject { put("inactiveDays", 30) },
+                        status = ToolStatus.SUCCEEDED,
+                        summary = "Not opened for 30+ days",
+                        resultMessage = "4 apps unused for 30+ days",
+                        displayData = buildJsonObject {
+                            put("kind", "unused_apps")
+                            put("inactive_days", 30)
+                            putJsonArray("apps") {
+                                add(unusedApp("Duolingo", 64, 312))
+                                add(unusedApp("Reddit", 47, 401))
+                                add(unusedApp("Chess", 39, 96))
+                                add(unusedApp("Amazon", 33, 388))
+                            }
+                        },
+                    ),
+                ),
+                tps = 11.4f,
+            ),
+        )
+
+        private fun block(id: String, title: String, time: String, message: String) = ToolInvocation(
+            id = id,
+            name = ToolNames.MANAGE_PLANNER,
+            arguments = buildJsonObject { put("action", "schedule_block"); put("title", title) },
+            status = ToolStatus.SUCCEEDED,
+            summary = "$title · $time",
+            resultMessage = message,
+            displayData = buildJsonObject { put("kind", "planner"); put("date", "2026-11-24") },
+        )
+
+        val DayPlanConversation = listOf(
+            message(1, ChatRole.USER, "Summarize my day"),
+            message(
+                2,
+                ChatRole.ASSISTANT,
+                "You have a team stand-up at 9:30, a dentist reminder at 4:00 PM and 2 urgent to-dos: **send the invoice** and **book train tickets**. You're free 11:00 to 1:00.",
+                tps = 10.8f,
+            ),
+            message(3, ChatRole.USER, "Block 2 to 4 for the slides and the gym at 6"),
+            message(
+                4,
+                ChatRole.ASSISTANT,
+                "Done. Slides from 2:00 to 4:00 PM and the gym from 6:00 to 7:00 PM.",
+                listOf(
+                    block("p1", "Slides", "2:00 PM – 4:00 PM", "Planned “Slides” today 14:00-16:00"),
+                    block("p2", "Gym", "6:00 PM – 7:00 PM", "Planned “Gym” today 18:00-19:00"),
+                ),
+                tps = 10.2f,
+            ),
         )
 
         /** Stand-in launcher icons (no PackageManager in tests), honouring the icon style. */

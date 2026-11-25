@@ -21,6 +21,7 @@ import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.model.ModelSpec
+import com.ailauncher.domain.model.SearchFolder
 import com.ailauncher.domain.model.UserProfile
 import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.AppUsageRepository
@@ -80,6 +81,8 @@ data class SettingsUiState(
     val busy: Boolean = false,
     /** The model the assistant uses. */
     val activeModel: ModelSpec? = null,
+    /** Google Play build: folders the file tools may search. */
+    val searchFolders: List<SearchFolder> = emptyList(),
 )
 
 @HiltViewModel
@@ -113,9 +116,9 @@ class SettingsViewModel @Inject constructor(
         combine(auth.profile, settingsRepository.launcherSettings, settingsRepository.modelConfig, ::Triple),
         combine(llm.state, modelRepository.fileState, modelRepository.options, ::Triple),
         system,
-        hiddenApps,
+        combine(hiddenApps, files.searchFolders, ::Pair),
         busy,
-    ) { (profile, settings, config), (engine, file, options), sys, hidden, isBusy ->
+    ) { (profile, settings, config), (engine, file, options), sys, (hidden, folders), isBusy ->
         SettingsUiState(
             profile = profile,
             googleSignInConfigured = auth.isGoogleSignInConfigured,
@@ -129,6 +132,7 @@ class SettingsViewModel @Inject constructor(
             performanceCores = cores,
             busy = isBusy,
             activeModel = options.firstOrNull { it.active }?.spec,
+            searchFolders = folders,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -157,6 +161,20 @@ class SettingsViewModel @Inject constructor(
                 notifications.clear()
                 _messages.send("Notification digest off. Its data was deleted")
             }
+        }
+    }
+
+    fun addSearchFolder(uri: String) {
+        viewModelScope.launch {
+            if (!files.addSearchFolder(uri)) _messages.send("That folder can't be searched")
+            refreshSystemStatus()
+        }
+    }
+
+    fun removeSearchFolder(folder: SearchFolder) {
+        viewModelScope.launch {
+            files.removeSearchFolder(folder.uri)
+            refreshSystemStatus()
         }
     }
 

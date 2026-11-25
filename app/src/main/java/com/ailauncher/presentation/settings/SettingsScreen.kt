@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Home
@@ -65,6 +66,7 @@ import com.ailauncher.BuildConfig
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.domain.model.DrawerTab
 import com.ailauncher.domain.model.FileAccessLevel
+import com.ailauncher.domain.model.SearchFolder
 import com.ailauncher.presentation.components.NotificationDigestDisclosure
 import com.ailauncher.presentation.components.SpecialAccess
 import com.ailauncher.presentation.drawer.PrivateSpaceAuth
@@ -75,6 +77,7 @@ import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.model.ThemeMode
+import com.ailauncher.presentation.components.AccessibilityDisclosure
 import com.ailauncher.presentation.components.AppIcon
 import com.ailauncher.presentation.components.AppListItem
 import com.ailauncher.presentation.components.OnResume
@@ -90,6 +93,8 @@ private enum class BackupFlow { EXPORT, IMPORT, CLOUD_UP, CLOUD_DOWN }
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenModelSetup: () -> Unit,
+    onOpenPrivacyPolicy: () -> Unit = {},
+    onOpenLicenses: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -98,6 +103,8 @@ fun SettingsScreen(
     var showHidden by remember { mutableStateOf(false) }
     var hiddenUnprotected by remember { mutableStateOf(false) }
     var showDigestDisclosure by remember { mutableStateOf(false) }
+    var showSearchFolders by remember { mutableStateOf(false) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
     var passphraseFor by remember { mutableStateOf<BackupFlow?>(null) }
     var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
@@ -107,6 +114,9 @@ fun SettingsScreen(
 
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { viewModel.refreshSystemStatus() }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refreshSystemStatus() }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { viewModel.addSearchFolder(it.toString()) }
+    }
     val openPrivateSpace = {
         authenticatePrivateSpace(context.findActivity() ?: context) { result ->
             when (result) {
@@ -268,7 +278,7 @@ fun SettingsScreen(
             if (state.system.lockMethod == LockMethod.NONE && state.settings.doubleTapToLock) {
                 item {
                     Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { runCatching { context.startActivity(viewModel.accessibilitySettingsIntent()) } }) { Text("Accessibility") }
+                        OutlinedButton(onClick = { showAccessibilityDisclosure = true }) { Text("Accessibility") }
                         OutlinedButton(onClick = { runCatching { roleLauncher.launch(viewModel.deviceAdminIntent()) } }) { Text("Device admin") }
                     }
                 }
@@ -436,12 +446,22 @@ fun SettingsScreen(
                     SpecialAccess.open(context, SpecialAccess.usageAccessIntent(context), Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
                 }
             }
-            item {
-                PermissionSetting("Photos, videos & audio", "Find your largest and oldest media files", state.system.fileAccess != FileAccessLevel.NONE) {
-                    permissionLauncher.launch(SpecialAccess.mediaPermissions())
+            if (!BuildConfig.BROAD_FILE_ACCESS) {
+                // Google Play build: no storage permission; only folders the user picks are searched.
+                item {
+                    ActionSetting(
+                        "Folders to search",
+                        state.searchFolders.joinToString { it.name }.ifBlank { "None yet. Choose folders such as DCIM, Movies or Documents" },
+                    ) { showSearchFolders = true }
+                }
+            } else {
+                item {
+                    PermissionSetting("Photos, videos & audio", "Find your largest and oldest media files", state.system.fileAccess != FileAccessLevel.NONE) {
+                        permissionLauncher.launch(SpecialAccess.mediaPermissions())
+                    }
                 }
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (BuildConfig.BROAD_FILE_ACCESS && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 item {
                     PermissionSetting("All files access (optional)", "Include documents and archives (PDF, ZIP) in file searches", state.system.fileAccess == FileAccessLevel.ALL_FILES) {
                         SpecialAccess.open(context, SpecialAccess.allFilesAccessIntent(context))
@@ -475,7 +495,28 @@ fun SettingsScreen(
                     supportingContent = { Text("On-device inference by llama.cpp · Qwen3 (Apache-2.0). Inference never uses the network.") },
                 )
             }
+            item { ActionSetting("Privacy policy", "What stays on your phone and what doesn't", onClick = onOpenPrivacyPolicy) }
+            item { ActionSetting("Open-source licences", null, onClick = onOpenLicenses) }
         }
+    }
+
+    if (showAccessibilityDisclosure) {
+        AccessibilityDisclosure(
+            onAgree = {
+                showAccessibilityDisclosure = false
+                runCatching { context.startActivity(viewModel.accessibilitySettingsIntent()) }
+            },
+            onDismiss = { showAccessibilityDisclosure = false },
+        )
+    }
+
+    if (showSearchFolders) {
+        SearchFoldersDialog(
+            folders = state.searchFolders,
+            onAdd = { runCatching { folderPicker.launch(null) }.onFailure { viewModel.showMessage("No folder picker is available") } },
+            onRemove = viewModel::removeSearchFolder,
+            onDismiss = { showSearchFolders = false },
+        )
     }
 
     if (showDigestDisclosure) {
@@ -678,4 +719,42 @@ private fun <T> ChoiceSetting(title: String, options: List<Pair<T, String>>, sel
             }
         }
     }
+}
+
+/** Google Play build: the folders the AI file tools may search (system folder picker grants). */
+@Composable
+private fun SearchFoldersDialog(
+    folders: List<SearchFolder>,
+    onAdd: () -> Unit,
+    onRemove: (SearchFolder) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Folders to search") },
+        text = {
+            Column {
+                Text(
+                    "The assistant's file tools (largest files, old files, recent changes) only look inside these folders, " +
+                        "on this phone. Android doesn't let apps choose the Download folder.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (folders.isEmpty()) {
+                    Text("No folders yet.", style = MaterialTheme.typography.bodyMedium)
+                }
+                folders.forEach { folder ->
+                    AppListItem(
+                        headlineContent = { Text(folder.name, maxLines = 1) },
+                        trailingContent = {
+                            IconButton(onClick = { onRemove(folder) }) { Icon(Icons.Rounded.Close, "Stop searching ${folder.name}") }
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onAdd) { Text("Add folder") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
 }

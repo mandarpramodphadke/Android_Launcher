@@ -34,6 +34,8 @@ import com.ailauncher.presentation.chat.AiChatScreen
 import com.ailauncher.presentation.components.LocalNavAnimatedVisibilityScope
 import com.ailauncher.presentation.components.LocalSharedTransitionScope
 import com.ailauncher.presentation.home.LauncherHomeScreen
+import com.ailauncher.presentation.legal.LicensesScreen
+import com.ailauncher.presentation.legal.PrivacyPolicyScreen
 import com.ailauncher.presentation.model.ModelDownloadScreen
 import com.ailauncher.presentation.onboarding.OnboardingScreen
 import com.ailauncher.presentation.planner.PlannerScreen
@@ -53,6 +55,10 @@ import kotlinx.serialization.Serializable
 @Serializable data class ChatRoute(val prompt: String? = null)
 
 @Serializable data object SettingsRoute
+
+@Serializable data object PrivacyPolicyRoute
+
+@Serializable data object LicensesRoute
 
 /** To-dos & Daily Planner. [tab] is a [PlannerTab] name. */
 @Serializable data class PlannerRoute(val tab: String = PlannerTab.PLAN.name)
@@ -172,7 +178,17 @@ fun LauncherNavHost(
                     SettingsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenModelSetup = { navController.navigate(ModelSetupRoute()) },
+                        onOpenPrivacyPolicy = { navController.navigate(PrivacyPolicyRoute) { launchSingleTop = true } },
+                        onOpenLicenses = { navController.navigate(LicensesRoute) { launchSingleTop = true } },
                     )
+                }
+
+                composable<PrivacyPolicyRoute>(enterTransition = slideFromEnd, popExitTransition = slideToEnd) {
+                    PrivacyPolicyScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable<LicensesRoute>(enterTransition = slideFromEnd, popExitTransition = slideToEnd) {
+                    LicensesScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable<PlannerRoute>(

@@ -8,7 +8,10 @@ import com.ailauncher.domain.model.DockEntry
 import com.ailauncher.domain.model.FileAccessLevel
 import com.ailauncher.domain.model.FileEntry
 import com.ailauncher.domain.model.FileQueryResult
+import com.ailauncher.domain.model.ContentReport
 import com.ailauncher.domain.model.FileTypeFilter
+import com.ailauncher.domain.model.ReportOutcome
+import com.ailauncher.domain.model.SearchFolder
 import com.ailauncher.domain.model.FolderAccent
 import com.ailauncher.domain.model.GridPosition
 import com.ailauncher.domain.model.HomeItem
@@ -109,9 +112,21 @@ interface AppUsageRepository {
     suspend fun appSizeBytes(packageName: String): Long?
 }
 
-/** Shared-storage files via MediaStore plus the launcher's own "opened through me" log. */
+/**
+ * Shared-storage files plus the launcher's own "opened through me" log. The full build reads
+ * MediaStore (media permissions, optional all-files access); the Google Play build only searches
+ * folders the user picked ([usesPickedFolders]).
+ */
 interface FileRepository {
     fun accessLevel(): FileAccessLevel
+
+    /** True in the Google Play build: no storage permission, only [searchFolders] are searched. */
+    val usesPickedFolders: Boolean
+    val searchFolders: Flow<List<SearchFolder>>
+    /** Keeps read access to a folder the user picked (a tree URI). */
+    suspend fun addSearchFolder(uri: String): Boolean
+    suspend fun removeSearchFolder(uri: String)
+
     suspend fun largest(limit: Int, type: FileTypeFilter): FileQueryResult
     suspend fun modifiedBetween(startMillis: Long, endMillis: Long, type: FileTypeFilter, limit: Int): FileQueryResult
     suspend fun downloadedBetween(startMillis: Long, endMillis: Long, type: FileTypeFilter, limit: Int): FileQueryResult
@@ -141,4 +156,11 @@ interface ContactRepository {
 interface ShortcutRepository {
     /** Static, dynamic and pinned shortcuts (only available while this is the default launcher). */
     suspend fun shortcuts(packageName: String): List<AppShortcut>
+}
+
+/** Reports of assistant replies, sent only when the user asks (see [ContentReport]). */
+interface ContentReportRepository {
+    /** Replies the user reported on this phone; they stay hidden behind a "Show" button. */
+    val reportedMessageIds: Flow<Set<Long>>
+    suspend fun submit(report: ContentReport): ReportOutcome
 }

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Google Play build. Merged over src/main/AndroidManifest.xml.
+
+    Google Play only allows "All files access" for file managers, backup and antivirus apps, and
+    full photo/video access for apps such as galleries. This build declares no storage permission
+    at all: the file tools search folders the user picks (Storage Access Framework), and files
+    opened through the launcher. The torch needs no permission on Android 6+, so CAMERA (kept in
+    the full build for a few OEM ROMs) is dropped as well. `verifyPlayReleasePlayPolicy` fails the
+    build if any of these comes back through a library.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_VIDEO"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_AUDIO"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <!-- A removal marker, not a declaration: lint checks this file on its own and would otherwise
+         ask for the camera <uses-feature> that the main manifest already declares. -->
+    <uses-permission
+        android:name="android.permission.CAMERA"
+        tools:ignore="PermissionImpliesUnsupportedChromeOsHardware"
+        tools:node="remove" />
+
+    <application tools:remove="android:requestLegacyExternalStorage" />
+
+</manifest>

@@ -118,17 +118,24 @@ private fun UnusedApps(apps: List<UnusedAppEntry>, callbacks: ToolCardCallbacks)
                 val context = LocalContext.current
                 Text(
                     listOfNotNull(
-                        app.lastUsedAt?.let { "Last used ${shortDate(it)}" } ?: "Not used recently",
+                        app.lastUsedAt?.let { daysAgo(it) } ?: "Not used recently",
                         app.sizeBytes?.let { context.formatBytes(it) },
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = { callbacks.onOpenApp(app) }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Open ${app.label}") }
-            IconButton(onClick = { callbacks.onHideApp(app) }) { Icon(Icons.Rounded.Lock, "Hide ${app.label} in Private Space") }
-            IconButton(onClick = { callbacks.onUninstallApp(app) }) { Icon(Icons.Rounded.Delete, "Uninstall ${app.label}") }
+            IconButton(onClick = { callbacks.onOpenApp(app) }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Open ${app.label}", Modifier.size(20.dp))
+            }
+            IconButton(onClick = { callbacks.onHideApp(app) }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Lock, "Hide ${app.label} in Private Space", Modifier.size(20.dp))
+            }
+            IconButton(onClick = { callbacks.onUninstallApp(app) }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Delete, "Uninstall ${app.label}", Modifier.size(20.dp))
+            }
         }
     }
     if (apps.size > COLLAPSED) {
@@ -161,8 +168,12 @@ private fun Files(files: List<FileCardEntry>, callbacks: ToolCardCallbacks) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = { callbacks.onOpenFile(file) }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Open ${file.name}") }
-            IconButton(onClick = { callbacks.onShareFile(file) }) { Icon(Icons.Rounded.Share, "Share ${file.name}") }
+            IconButton(onClick = { callbacks.onOpenFile(file) }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Open ${file.name}", Modifier.size(20.dp))
+            }
+            IconButton(onClick = { callbacks.onShareFile(file) }, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Share, "Share ${file.name}", Modifier.size(20.dp))
+            }
         }
     }
     if (files.size > COLLAPSED) {
@@ -178,6 +189,7 @@ private fun GrantRow(need: String, onGrant: () -> Unit) {
         "all_files" -> "Allow all files access" to "Needed for documents and archives (PDFs, ZIPs). Optional."
         "notification_access" -> "Turn on notification digest" to "Notifications are summarized on-device and deleted after 24 hours."
         "contacts" -> "Allow contacts" to "To find who to call or message. Contacts never leave this phone."
+        "folders" -> "Choose folders to search" to "Pick folders such as DCIM, Movies or Documents. Only those folders are searched, on this phone."
         else -> return
     }
     Column(Modifier.padding(top = 4.dp)) {
@@ -209,6 +221,17 @@ private fun fileIcon(mime: String?): ImageVector = when {
 }
 
 private fun shortDate(millis: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(millis))
+
+/** "used today", "used yesterday", "64 days ago", "over a year ago": short enough for a row with three buttons. */
+private fun daysAgo(millis: Long): String {
+    val days = ((System.currentTimeMillis() - millis) / 86_400_000L).coerceAtLeast(0)
+    return when {
+        days == 0L -> "used today"
+        days == 1L -> "used yesterday"
+        days < 365 -> "$days days ago"
+        else -> "over a year ago"
+    }
+}
 
 private const val COLLAPSED = 6
 

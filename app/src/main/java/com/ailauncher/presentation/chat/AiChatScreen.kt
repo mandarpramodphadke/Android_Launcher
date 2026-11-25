@@ -26,13 +26,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -51,9 +56,11 @@ import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.NotificationAdd
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.OutlinedFlag
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
@@ -66,6 +73,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -73,6 +81,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -92,6 +101,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,6 +118,7 @@ import com.ailauncher.domain.model.ChatRole
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.InferenceMode
 import com.ailauncher.domain.model.MessageStatus
+import com.ailauncher.domain.model.ReportReason
 import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.presentation.components.EngineDetailsSheet
@@ -148,10 +159,21 @@ fun AiChatScreen(
     var showEngine by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var showDigestDisclosure by remember { mutableStateOf(false) }
+    var reportingId by rememberSaveable { mutableStateOf<Long?>(null) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     ThemedSystemBarIcons()
     LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
+    // No in-app report channel in this build: finish the report in the email app.
+    LaunchedEffect(viewModel) {
+        viewModel.emailReports.collect { email ->
+            val intent = Intent(Intent.ACTION_SENDTO, "mailto:".toUri())
+                .putExtra(Intent.EXTRA_EMAIL, arrayOf(email.to))
+                .putExtra(Intent.EXTRA_SUBJECT, email.subject)
+                .putExtra(Intent.EXTRA_TEXT, email.body)
+            if (runCatching { context.startActivity(intent) }.isFailure) snackbar.showSnackbar("No email app found to send the report")
+        }
+    }
 
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         // Proceed either way: tools degrade gracefully (local reminders, agenda without calendar).
@@ -192,8 +214,13 @@ fun AiChatScreen(
     val retryPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted.values.any { it }) viewModel.retryLast()
     }
+    // Google Play build: the system folder picker grants access to one folder at a time.
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { viewModel.addSearchFolder(it.toString()) }
+    }
     val grant: (String) -> Unit = { need ->
         when (need) {
+            "folders" -> runCatching { folderPicker.launch(null) }.onFailure { viewModel.showMessage("No folder picker is available") }
             "usage_access" -> SpecialAccess.open(context, SpecialAccess.usageAccessIntent(context), Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
             "all_files" -> SpecialAccess.open(context, SpecialAccess.allFilesAccessIntent(context))
             "media" -> retryPermissions.launch(SpecialAccess.mediaPermissions())
@@ -271,35 +298,21 @@ fun AiChatScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            reverseLayout = true,
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            shared?.let { payload ->
-                item(key = "shared") {
-                    SharedContentCard(payload, onAction = viewModel::useShared, onDismiss = viewModel::dismissShared)
-                }
-            }
-            items(state.messages.asReversed(), key = { it.message.id }) { item ->
-                MessageItem(
-                    item = item,
-                    cardCallbacks = cardCallbacks,
-                    onConfirm = { invocation ->
-                        withPermissions(permissionsFor(invocation)) { viewModel.confirmTool(item.message.id, invocation.id) }
-                    },
-                    onCancel = { invocation -> viewModel.cancelTool(item.message.id, invocation.id) },
-                )
-            }
-            if (state.messages.isEmpty()) {
-                item(key = "empty") { EmptyChat() }
-            }
-            if (state.engine == EngineState.NoModel) {
-                item(key = "no-model") { ModelMissingCard(onOpenModelSetup) }
-            }
-        }
+        ChatMessageList(
+            state = state,
+            shared = shared,
+            listState = listState,
+            padding = padding,
+            cardCallbacks = cardCallbacks,
+            onConfirm = { item, invocation ->
+                withPermissions(permissionsFor(invocation)) { viewModel.confirmTool(item.message.id, invocation.id) }
+            },
+            onCancel = { item, invocation -> viewModel.cancelTool(item.message.id, invocation.id) },
+            onReport = { id -> reportingId = id },
+            onSharedAction = viewModel::useShared,
+            onSharedDismiss = viewModel::dismissShared,
+            onOpenModelSetup = onOpenModelSetup,
+        )
     }
 
     if (showEngine) {
@@ -314,6 +327,16 @@ fun AiChatScreen(
                 onOpenModelSetup()
             },
             onDismiss = { showEngine = false },
+        )
+    }
+    reportingId?.let { id ->
+        ReportReplyDialog(
+            opensEmail = viewModel.reportsOpenEmail,
+            onSend = { reason, details, includeQuestion ->
+                viewModel.report(id, reason, details, includeQuestion)
+                reportingId = null
+            },
+            onDismiss = { reportingId = null },
         )
     }
     if (showDigestDisclosure) {
@@ -342,8 +365,54 @@ fun AiChatScreen(
     }
 }
 
+/** The conversation, newest at the bottom. Stateless, so screenshot tests can render it. */
 @Composable
-private fun ChatInput(
+internal fun ChatMessageList(
+    state: ChatUiState,
+    shared: SharedPayload?,
+    listState: LazyListState,
+    padding: PaddingValues,
+    cardCallbacks: ToolCardCallbacks,
+    onConfirm: (ChatMessageUi, ToolInvocation) -> Unit,
+    onCancel: (ChatMessageUi, ToolInvocation) -> Unit,
+    onReport: (Long) -> Unit,
+    onSharedAction: (ClipAction) -> Unit,
+    onSharedDismiss: () -> Unit,
+    onOpenModelSetup: () -> Unit,
+) {
+    LazyColumn(
+        state = listState,
+        reverseLayout = true,
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        shared?.let { payload ->
+            item(key = "shared") {
+                SharedContentCard(payload, onAction = onSharedAction, onDismiss = onSharedDismiss)
+            }
+        }
+        items(state.messages.asReversed(), key = { it.message.id }) { item ->
+            MessageItem(
+                item = item,
+                reported = item.message.id in state.reportedIds,
+                onReport = { onReport(item.message.id) },
+                cardCallbacks = cardCallbacks,
+                onConfirm = { invocation -> onConfirm(item, invocation) },
+                onCancel = { invocation -> onCancel(item, invocation) },
+            )
+        }
+        if (state.messages.isEmpty()) {
+            item(key = "empty") { EmptyChat() }
+        }
+        if (state.engine == EngineState.NoModel) {
+            item(key = "no-model") { ModelMissingCard(onOpenModelSetup) }
+        }
+    }
+}
+
+@Composable
+internal fun ChatInput(
     state: TextFieldState,
     busy: Boolean,
     reasoning: Boolean,
@@ -437,6 +506,8 @@ private fun SharedContentCard(payload: SharedPayload, onAction: (ClipAction) -> 
 @Composable
 private fun MessageItem(
     item: ChatMessageUi,
+    reported: Boolean,
+    onReport: () -> Unit,
     cardCallbacks: ToolCardCallbacks,
     onConfirm: (ToolInvocation) -> Unit,
     onCancel: (ToolInvocation) -> Unit,
@@ -460,7 +531,20 @@ private fun MessageItem(
             ThoughtAccordion(thinking = thinking, live = item.streaming && !item.thinkingComplete, messageId = message.id)
         }
         val showTyping = item.streaming && message.content.isBlank() && (message.thinking == null || item.thinkingComplete) && message.toolCalls.isEmpty()
+        var revealed by rememberSaveable(message.id) { mutableStateOf(false) }
         when {
+            message.content.isNotBlank() && reported && !revealed -> Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp),
+                modifier = Modifier.widthIn(max = 340.dp),
+            ) {
+                Row(Modifier.padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Flag, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(8.dp))
+                    Text("You reported this reply.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { revealed = true }) { Text("Show") }
+                }
+            }
             message.content.isNotBlank() -> Surface(
                 color = if (message.status == MessageStatus.ERROR) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                 shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp),
@@ -494,10 +578,97 @@ private fun MessageItem(
             )
             else -> null
         }
-        footer?.let {
-            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 6.dp))
+        val reportable = !item.streaming && !reported && message.content.isNotBlank() && message.status != MessageStatus.ERROR
+        if (footer != null || reportable) {
+            Row(Modifier.widthIn(max = 340.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    footer.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp).weight(1f),
+                )
+                // Google Play: AI replies can be reported from inside the app.
+                if (reportable) {
+                    TextButton(onClick = onReport, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Icon(Icons.Rounded.OutlinedFlag, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Report", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
         }
     }
+}
+
+/** Report an assistant reply: a reason, optional details, and exactly what will be sent. */
+@Composable
+private fun ReportReplyDialog(
+    opensEmail: Boolean,
+    onSend: (ReportReason, String?, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var reason by rememberSaveable { mutableStateOf<ReportReason?>(null) }
+    var includeQuestion by rememberSaveable { mutableStateOf(true) }
+    val details = rememberTextFieldState()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Flag, null) },
+        title = { Text("Report this reply") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("What's wrong with it?", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(4.dp))
+                ReportReason.entries.forEach { option ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(selected = reason == option, onClick = { reason = option }, role = Role.RadioButton)
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = reason == option, onClick = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                LauncherTextField(
+                    state = details,
+                    placeholder = "Add details (optional)",
+                    lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 4),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .toggleable(value = includeQuestion, onValueChange = { includeQuestion = it }, role = Role.Checkbox)
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = includeQuestion, onCheckedChange = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Include my question", style = MaterialTheme.typography.bodyMedium)
+                }
+                val what = if (includeQuestion) "this reply and your question" else "this reply"
+                Text(
+                    if (opensEmail) {
+                        "Opens your email app with $what filled in, addressed to the developer. Nothing else from your phone is included."
+                    } else {
+                        "Sends $what to the developer so the assistant can be made safer. Nothing else from your phone is sent."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = reason != null, onClick = { reason?.let { onSend(it, details.text.toString(), includeQuestion) } }) {
+                Text("Send report")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Collapsible view of Qwen3's `<think>` block. Expanded live while the model is thinking. */
@@ -612,7 +783,8 @@ private fun EmptyChat() {
         Spacer(Modifier.height(6.dp))
         Text(
             "I run entirely on your phone. Ask me anything, or tell me to set alarms, reminders and timers, open apps and folders, " +
-                "manage your to-dos and day plan, find big or old files, spot unused apps, or call and message contacts.",
+                "manage your to-dos and day plan, find big or old files, spot unused apps, or call and message contacts.\n\n" +
+                "My answers are generated by AI on this phone and can be wrong. Use Report under a reply to flag anything inappropriate.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 24.dp),

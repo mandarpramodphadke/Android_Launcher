@@ -69,7 +69,17 @@ data class FileEntry(
 )
 
 /** How much of shared storage the launcher may read. */
-enum class FileAccessLevel { NONE, MEDIA_ONLY, ALL_FILES }
+enum class FileAccessLevel {
+    NONE,
+    MEDIA_ONLY,
+    ALL_FILES,
+
+    /** Google Play build: only folders the user picked (Storage Access Framework). */
+    FOLDERS,
+}
+
+/** A folder the user allowed the file tools to search (Google Play build). */
+data class SearchFolder(val uri: String, val name: String)
 
 data class FileQueryResult(val files: List<FileEntry>, val accessLevel: FileAccessLevel)
 

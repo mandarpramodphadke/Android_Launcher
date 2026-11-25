@@ -1,0 +1,8 @@
+title: AI Launcher
+description: An Android home screen with a private, on-device AI assistant.
+# Only the public pages are published; release notes and store material stay in the repository.
+exclude:
+  - PLAY_RELEASE.md
+  - play-listing.md
+  - store
+  - report-form.md

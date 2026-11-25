@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.3: Google Play version](#whats-new-in-13-google-play-version)
 1. [What's new in 1.2](#whats-new-in-12)
 1. [Features](#features)
 2. [Architecture](#architecture)
@@ -26,6 +27,34 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.3: Google Play version
+
+The app now builds in two versions from the same code (Gradle product flavors):
+
+- **`full`** (application ID `com.ailauncher`): installed directly from an APK. Every feature,
+  unchanged.
+- **`play`**: ready for Google Play. It has its own application ID, declares no storage permission
+  (the file tools search only folders the user picks with Android's folder picker), drops the
+  unused camera permission, and has no Google sign-in or cloud backup. A Gradle check
+  (`verifyPlayReleasePlayPolicy`) fails the build if a permission Play restricts ever reaches its
+  manifest, or if a release has nowhere to send reports of AI replies.
+
+New in both versions:
+
+- **Report** under every assistant reply (Google Play's AI-generated content policy): pick a reason,
+  add details, and choose whether to include your question. The reply is hidden on the phone at
+  once; the report goes to the developer's Google Form in the background, or opens an email draft
+  if no form is configured.
+- **Privacy policy** and **open-source licences** screens in Settings. The policy's single source is
+  `docs/privacy-policy.md`, which GitHub Pages can publish for the Play listing.
+- A prominent disclosure before the app opens Accessibility settings, a "can make mistakes"
+  notice in the assistant, and a short safety rule in its system prompt.
+
+The full publishing guide, with suggested answers for every Play Console form, is
+[docs/PLAY_RELEASE.md](docs/PLAY_RELEASE.md).
 
 ---
 
@@ -287,11 +316,17 @@ git submodule update --init --depth 1
 ```
 
 ```bash
-./gradlew :app:assembleDebug
+./gradlew :app:assembleFullDebug
 ```
 
 ```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/full/debug/app-full-debug.apk
+```
+
+For the Google Play version, build an app bundle (see [docs/PLAY_RELEASE.md](docs/PLAY_RELEASE.md)):
+
+```bash
+./gradlew :app:bundlePlayRelease
 ```
 
 Then press Home and pick **AI Launcher**, or use *Settings ▸ Make AI Launcher your home app*.
@@ -314,6 +349,9 @@ llama.cpp.dir=/path/to/llama.cpp
 ggml.vulkan=true                                  # false = CPU-only native build
 vulkan.headers.dir=/path/to/Vulkan-Headers        # offline builds; default: fetch tag v1.4.369
 spirv.headers.dir=/path/to/SPIRV-Headers          # default: fetch tag vulkan-sdk-1.4.363.0
+play.application.id=io.github.example.ailauncher # Google Play version (permanent once uploaded)
+support.email=you@example.com                      # privacy policy contact; email fallback for reports
+report.form.url=https://docs.google.com/forms/…   # in-app AI-reply reports, see docs/report-form.md
 release.store.file=/path/to/release.jks
 release.store.password=…
 release.key.alias=…
@@ -482,11 +520,11 @@ sending the user to Accessibility settings.
 ## Testing
 
 ```bash
-./gradlew :app:testDebugUnitTest
+./gradlew :app:testFullDebugUnitTest :app:testPlayDebugUnitTest
 ```
 
 ```bash
-./gradlew :app:lintDebug
+./gradlew :app:lintFullDebug :app:lintPlayDebug
 ```
 
 The JVM unit tests cover:
@@ -524,7 +562,7 @@ cmake --build build/host
 Then run the test:
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests '*LlamaNativeHostTest*' -Pailauncher.test.nativeDir=$PWD/build/host -Pailauncher.test.model=/path/to/qwen3-1.7b-q4_k_m.gguf
+./gradlew :app:testFullDebugUnitTest --tests '*LlamaNativeHostTest*' -Pailauncher.test.nativeDir=$PWD/build/host -Pailauncher.test.model=/path/to/qwen3-1.7b-q4_k_m.gguf
 ```
 
 **Host harness.** Replay prompts (e.g. the exported fixtures) against the model:
@@ -537,14 +575,19 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 
 ## Verification performed
 
-All of the following was run while building this project (1.2.0):
+All of the following was run while building this project (1.3.0):
 
-- `assembleRelease` (R8 + resource shrinking, **23.6 MB APK**, up from 16 MB because of the arm64
-  Vulkan backend) and `testDebugUnitTest` succeed with **zero Kotlin compiler warnings**.
-  `lintDebug` is clean except for the intentional `OldTargetApi` (targetSdk 36).
-- **113 JVM unit tests pass** (1 JNI host test skipped unless configured), including the Room 1 → 2
-  migration test, the regression test built from verbatim real-model outputs, and one that renders
-  27 theme/layout screenshots.
+- `bundlePlayRelease` (**41 MB app bundle**; Google Play delivers an APK of about 20 MB to arm64
+  phones) and `assembleFullRelease` (R8 + resource shrinking, **23.6 MB APK**) succeed with **zero
+  Kotlin compiler warnings**. `lintFullDebug` and `lintPlayDebug` are clean except for the
+  intentional `OldTargetApi` (targetSdk 36).
+- **bundletool** validates the Play bundle and builds a universal APK from it: package
+  `io.github.mandarpramodphadke.aura`, version 1.3.0 (4), no storage or camera permission, native
+  libraries, licences and privacy policy included. `verifyPlayReleasePlayPolicy` passes.
+- **122 JVM unit tests pass on both versions** (1 JNI host test skipped unless configured),
+  including the Room 1 → 2 migration test, the regression test built from verbatim real-model
+  outputs, folder-mode file selection, the report-form parser, and a test that renders 31
+  theme, layout and assistant screenshots (the source of the store graphics).
 - **Native**: llama.cpp b12651 builds for arm64 with seven CPU variants plus `libggml-vulkan.so`
   (about 1,200 SPIR-V shaders compiled by the NDK's `glslc`), and CPU-only for x86_64. Every `.so`
   is 16 KB page-aligned.
@@ -560,7 +603,9 @@ All of the following was run while building this project (1.2.0):
 KVM/device, and no GPU). Before shipping, test on real arm64 hardware: home role, gestures,
 widgets (bind and configure flows), the drawer drag, download foreground service, reminders after
 reboot, the notification listener, share sheet, BiometricPrompt, Google Sign-In with your OAuth
-clients, on-device tok/s on CPU, and GPU offload on a few Adreno / Mali / Xclipse devices.
+clients, on-device tok/s on CPU, GPU offload on a few Adreno / Mali / Xclipse devices, and in the
+Play version the folder picker, folder search and Report (email draft). Google Play's internal
+testing track is the easiest way to do this.
 
 ---
 

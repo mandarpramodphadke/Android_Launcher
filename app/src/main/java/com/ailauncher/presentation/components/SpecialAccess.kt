@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -73,5 +74,30 @@ fun NotificationDigestDisclosure(onAccept: () -> Unit, onDismiss: () -> Unit) {
         },
         confirmButton = { TextButton(onClick = onAccept) { Text("Turn on") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+    )
+}
+
+/**
+ * Prominent disclosure required by Google Play before the user turns on the accessibility service
+ * (double-tap to lock, swipe down for notifications). Shown before Accessibility settings opens.
+ */
+@Composable
+fun AccessibilityDisclosure(onAgree: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.TouchApp, null) },
+        title = { Text("Turn on AI Launcher gestures?") },
+        text = {
+            Text(
+                "AI Launcher uses an Android accessibility service only to turn the screen off when you double-tap " +
+                    "the home screen, and to open the notification shade when you swipe down.\n\n" +
+                    "• It does not read, collect or share anything shown on your screen.\n" +
+                    "• Nothing is sent off your phone.\n" +
+                    "• You can turn it off at any time in Accessibility settings.\n\n" +
+                    "Next, open \"AI Launcher gestures\" in the list and switch it on.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onAgree) { Text("Agree and continue") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("No thanks") } },
     )
 }

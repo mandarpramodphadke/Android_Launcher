@@ -81,6 +81,6 @@ class LauncherQuickCommandsTest {
         // Over the short-command length, only clear messages and to-dos are quick commands.
         assertThat(parser.parse("open the document I sent you yesterday about the quarterly planning meeting and summarize it")).isNull()
         assertThat(parser.parse("text Jordan: the quarterly planning meeting moved to Thursday at three in the big conference room"))
-            ?.isInstanceOf(ToolCommand.ContactAction::class.java)
+            .isInstanceOf(ToolCommand.ContactAction::class.java)
     }
 }

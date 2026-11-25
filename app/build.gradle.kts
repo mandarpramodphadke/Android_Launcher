@@ -1,3 +1,4 @@
+import com.android.build.api.artifact.SingleArtifact
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -40,6 +41,16 @@ val llamaCppDir = config("llama.cpp.dir")
 // CPU-only library. Header checkouts can be supplied for offline builds, otherwise CMake fetches the
 // pinned Vulkan-Headers / SPIRV-Headers tags.
 val ggmlVulkan = config("ggml.vulkan")?.toBooleanStrictOrNull() ?: true
+
+// Google Play build (see docs/PLAY_RELEASE.md). The Play app has its own, permanent application ID;
+// the contact address appears in the privacy policy and receives AI-reply reports when no report
+// form is configured; the report form is a Google Form "pre-filled link" (fully in-app reports).
+val playApplicationId = config("play.application.id") ?: "io.github.mandarpramodphadke.aura"
+val supportEmail = config("support.email") ?: "mandarphadke1434@gmail.com"
+val reportFormUrl = config("report.form.url").orEmpty()
+
+fun buildConfigString(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 val vulkanHeadersDir = config("vulkan.headers.dir")
 val spirvHeadersDir = config("spirv.headers.dir")
 
@@ -58,14 +69,16 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
         buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
+        buildConfigField("String", "SUPPORT_EMAIL", buildConfigString(supportEmail))
+        buildConfigField("String", "REPORT_FORM_URL", buildConfigString(reportFormUrl))
 
         ndk {
             // arm64-v8a: real devices. x86_64: emulators (slow, but functional).
@@ -90,6 +103,26 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = libs.versions.cmake.get()
+        }
+    }
+
+    // full: installed directly from an APK, every feature. play: Google Play policy-safe build with
+    // its own application ID, no broad storage permissions (file tools search folders the user picks)
+    // and no cloud sign-in or backup. Shared code checks the BuildConfig flags below.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("full") {
+            dimension = "distribution"
+            buildConfigField("boolean", "PLAY_BUILD", "false")
+            buildConfigField("boolean", "BROAD_FILE_ACCESS", "true")
+            buildConfigField("boolean", "CLOUD_FEATURES", "true")
+        }
+        create("play") {
+            dimension = "distribution"
+            applicationId = playApplicationId
+            buildConfigField("boolean", "PLAY_BUILD", "true")
+            buildConfigField("boolean", "BROAD_FILE_ACCESS", "false")
+            buildConfigField("boolean", "CLOUD_FEATURES", "false")
         }
     }
 
@@ -170,6 +203,107 @@ kotlin {
 tasks.withType<Test>().configureEach {
     providers.gradleProperty("ailauncher.test.model").orNull?.let { systemProperty("ailauncher.test.model", it) }
     providers.gradleProperty("ailauncher.test.nativeDir").orNull?.let { systemProperty("java.library.path", it) }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Google Play guard: fail the Play build if a permission Google Play restricts for this kind of
+// app reaches its merged manifest (for example through a library update).
+// ---------------------------------------------------------------------------------------------
+abstract class VerifyPlayManifestTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val mergedManifest: RegularFileProperty
+
+    @get:Input
+    abstract val restrictedPermissions: ListProperty<String>
+
+    /** Where AI-reply reports go: "form" (in-app), "email" (email draft) or "none". */
+    @get:Input
+    abstract val reportChannel: Property<String>
+
+    @get:Input
+    abstract val releaseBuild: Property<Boolean>
+
+    @get:OutputFile
+    abstract val report: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val manifest = mergedManifest.get().asFile.readText()
+        val found = restrictedPermissions.get().filter { manifest.contains("\"$it\"") }
+        check(found.isEmpty()) { "The Google Play build must not declare: ${found.joinToString()}" }
+        // Google Play's AI-generated content policy: users must be able to report AI replies in-app.
+        if (releaseBuild.get()) {
+            check(reportChannel.get() != "none") {
+                "Set report.form.url (a Google Form pre-filled link, see docs/PLAY_RELEASE.md) or support.email " +
+                    "in local.properties: Google Play requires in-app reporting of AI replies."
+            }
+            if (reportChannel.get() == "email") {
+                logger.warn("Play build: AI-reply reports open an email draft. Set report.form.url to send them in-app (recommended).")
+            }
+        }
+        report.get().asFile.writeText("No restricted permissions. AI-reply reports: ${reportChannel.get()}.\n")
+    }
+}
+
+// The privacy policy has one source, docs/privacy-policy.md: GitHub Pages publishes it for the
+// Play listing and every build shows the same text in Settings ▸ Privacy policy.
+abstract class CopyLegalDocsTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val privacyPolicy: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val legal = outputDir.get().asFile.resolve("legal").apply { mkdirs() }
+        privacyPolicy.get().asFile.copyTo(legal.resolve("privacy-policy.md"), overwrite = true)
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val suffix = variant.name.replaceFirstChar { it.uppercase() }
+        val copyLegal = tasks.register<CopyLegalDocsTask>("copy${suffix}LegalDocs") {
+            privacyPolicy.set(rootProject.layout.projectDirectory.file("docs/privacy-policy.md"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(copyLegal, CopyLegalDocsTask::outputDir)
+    }
+    onVariants(selector().withFlavor("distribution" to "play")) { variant ->
+        val suffix = variant.name.replaceFirstChar { it.uppercase() }
+        val verify = tasks.register<VerifyPlayManifestTask>("verify${suffix}PlayPolicy") {
+            mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+            restrictedPermissions.set(
+                listOf(
+                    "android.permission.MANAGE_EXTERNAL_STORAGE",
+                    "android.permission.READ_MEDIA_IMAGES",
+                    "android.permission.READ_MEDIA_VIDEO",
+                    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+                    "android.permission.READ_EXTERNAL_STORAGE",
+                    "android.permission.WRITE_EXTERNAL_STORAGE",
+                    "android.permission.QUERY_ALL_PACKAGES",
+                    "android.permission.REQUEST_INSTALL_PACKAGES",
+                    "android.permission.READ_SMS",
+                    "android.permission.SEND_SMS",
+                    "android.permission.READ_CALL_LOG",
+                    "android.permission.ACCESS_BACKGROUND_LOCATION",
+                    "android.permission.USE_EXACT_ALARM",
+                ),
+            )
+            reportChannel.set(
+                when {
+                    reportFormUrl.startsWith("https://docs.google.com/forms/") -> "form"
+                    supportEmail.isNotBlank() -> "email"
+                    else -> "none"
+                },
+            )
+            releaseBuild.set(variant.buildType == "release")
+            report.set(layout.buildDirectory.file("outputs/play-policy/${variant.name}.txt"))
+        }
+        tasks.matching { it.name == "assemble$suffix" || it.name == "bundle$suffix" }.configureEach { dependsOn(verify) }
+    }
 }
 
 ksp {
