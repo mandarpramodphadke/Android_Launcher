@@ -53,6 +53,10 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
+import com.ailauncher.BuildConfig
+import kotlinx.coroutines.flow.asStateFlow
+import com.ailauncher.data.packages.IconPackInfo
+import com.ailauncher.data.packages.IconPackRepository
 
 data class SystemStatus(
     val isDefaultLauncher: Boolean = false,
@@ -104,7 +108,18 @@ class SettingsViewModel @Inject constructor(
     private val contacts: ContactRepository,
     private val notifications: NotificationDigestRepository,
     private val gpuGuard: GpuOffloadGuard,
+    private val iconPackRepository: IconPackRepository,
 ) : ViewModel() {
+
+    /** Installed icon packs (full version: ICON_CUSTOMIZATION). */
+    private val _iconPacks = MutableStateFlow<List<IconPackInfo>>(emptyList())
+    val iconPacks: StateFlow<List<IconPackInfo>> = _iconPacks.asStateFlow()
+
+    /** Looks for icon packs again (one may have been installed while Settings was in the background). */
+    fun refreshIconPacks() {
+        if (!BuildConfig.ICON_CUSTOMIZATION) return
+        viewModelScope.launch { _iconPacks.value = runCatching { iconPackRepository.installedPacks() }.getOrDefault(emptyList()) }
+    }
 
     private val system = MutableStateFlow(SystemStatus())
     private val busy = MutableStateFlow(false)

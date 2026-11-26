@@ -74,12 +74,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ailauncher.data.media.NowPlaying
 import com.ailauncher.data.widgets.LauncherWidgetHost
 import com.ailauncher.domain.clipboard.ClipAction
 import com.ailauncher.domain.clipboard.ClipInsight
 import com.ailauncher.domain.home.GridSpec
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.AppTheme
+import com.ailauncher.domain.model.BatteryGlance
+import com.ailauncher.domain.model.ClockFace
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
 import com.ailauncher.domain.model.AssistantProfile
@@ -173,6 +176,11 @@ internal fun HomeContent(
     pagerNestedScroll: NestedScrollConnection? = null,
     /** Sideways drag on the minimal home screen (it has no pager). */
     panelDrag: Modifier = Modifier,
+    /** What's playing (full version: MEDIA_CONTROLS). */
+    nowPlaying: NowPlaying? = null,
+    /** Instant answers for the command bar's text (full version: INSTANT_SEARCH). */
+    instant: InstantResults = InstantResults(),
+    extras: HomeExtrasCallbacks = HomeExtrasCallbacks(),
 ) {
     val drag = remember { HomeDragState() }
     Box(modifier.fillMaxSize().onGloballyPositioned { drag.root = it }) {
@@ -186,7 +194,7 @@ internal fun HomeContent(
                 .padding(horizontal = if (style.minimal) 28.dp else 12.dp),
         ) {
             if (style.minimal) {
-                Box(panelDrag) { MinimalHome(state, tint, style, queryState, clip, callbacks, entrance) }
+                Box(panelDrag) { MinimalHome(state, tint, style, queryState, clip, callbacks, entrance, nowPlaying, instant, extras) }
             } else {
                 Box(
                     Modifier
@@ -203,12 +211,15 @@ internal fun HomeContent(
                         modifier = Modifier.fillMaxSize(),
                         beyondViewportPageCount = if (drag.isDragging) state.pageCount else 1,
                     ) { page ->
-                        HomePage(page, state, tint, style, widgetHost, editingWidgetId, callbacks, entrance, drag)
+                        HomePage(page, state, tint, style, widgetHost, editingWidgetId, callbacks, entrance, drag, nowPlaying, extras)
                     }
                 }
                 if (callbacks.dragEnabled) DragPageFlipper(drag, pagerState, state, callbacks.onAddPage)
                 LaunchedEffect(pagerState.currentPage) { callbacks.onPageChanged(pagerState.currentPage) }
                 PageIndicator(state.pageCount, pagerState.currentPage, tint, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp))
+                AnimatedVisibility(visible = !instant.isEmpty && queryState.text.isNotBlank(), enter = fadeIn(), exit = fadeOut()) {
+                    InstantResultsCard(instant, extras, border = themedOutline(), modifier = Modifier.padding(bottom = 6.dp))
+                }
                 AnimatedVisibility(visible = state.searchResults.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                     SearchResultsRow(state.searchResults, callbacks)
                 }
@@ -265,6 +276,8 @@ private fun HomePage(
     callbacks: HomeCallbacks,
     entrance: HomeEntrance,
     drag: HomeDragState,
+    nowPlaying: NowPlaying?,
+    extras: HomeExtrasCallbacks,
 ) {
     MeasuredPage(state.settings.homeGridColumns) { metrics ->
         LaunchedEffect(metrics) {
@@ -275,9 +288,9 @@ private fun HomePage(
             if (page == 0) {
                 Column(Modifier.fillMaxWidth().height(metrics.cellHeight * HEADER_ROWS).padding(horizontal = 8.dp).entrance(entrance.clock)) {
                     Spacer(Modifier.height(12.dp))
-                    ClockWidget(state.now, state.use24Hour, tint, style, onClick = callbacks.onOpenClock)
+                    ClockWidget(state.now, state.use24Hour, tint, style, onClick = callbacks.onOpenClock, battery = state.battery)
                     Spacer(Modifier.height(10.dp))
-                    HeaderChips(state, tint, callbacks)
+                    HeaderChips(state, tint, callbacks, nowPlaying, extras)
                 }
             } else if (items.isEmpty()) {
                 EmptyPageHint(tint)
@@ -335,8 +348,9 @@ private fun HomePage(
 
 /** Alarm / reminder, smart pills (OTP, meeting link, tracking number) and the planner glance. */
 @Composable
-private fun HeaderChips(state: HomeUiState, tint: WallpaperTint, callbacks: HomeCallbacks) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun HeaderChips(state: HomeUiState, tint: WallpaperTint, callbacks: HomeCallbacks, nowPlaying: NowPlaying?, extras: HomeExtrasCallbacks) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        nowPlaying?.let { MediaChip(it, tint, extras) }
         state.upcoming?.let { UpcomingPill(it, state.now, state.use24Hour, tint, plain = false, onClick = callbacks.onOpenClock) }
         state.pills.forEach { pill -> SmartPillChip(pill, tint, callbacks) }
         val glance = state.glance
@@ -392,15 +406,25 @@ private fun MinimalHome(
     clip: ClipInsight?,
     callbacks: HomeCallbacks,
     entrance: HomeEntrance,
+    nowPlaying: NowPlaying?,
+    instant: InstantResults,
+    extras: HomeExtrasCallbacks,
 ) {
     Column(Modifier.fillMaxSize()) {
         Spacer(Modifier.height(72.dp))
-        Box(Modifier.entrance(entrance.clock)) { ClockWidget(state.now, state.use24Hour, tint, style, onClick = callbacks.onOpenClock) }
+        Box(Modifier.entrance(entrance.clock)) { ClockWidget(state.now, state.use24Hour, tint, style, onClick = callbacks.onOpenClock, battery = state.battery) }
         state.upcoming?.let { event ->
             Spacer(Modifier.height(12.dp))
             UpcomingPill(event, state.now, state.use24Hour, tint, plain = true, onClick = callbacks.onOpenClock)
         }
+        nowPlaying?.let {
+            Spacer(Modifier.height(4.dp))
+            MinimalMediaLine(it, tint, extras)
+        }
         Spacer(Modifier.weight(1f))
+        AnimatedVisibility(visible = !instant.isEmpty && queryState.text.isNotBlank(), enter = fadeIn(), exit = fadeOut()) {
+            InstantResultsCard(instant, extras, modifier = Modifier.padding(bottom = 12.dp))
+        }
         Box(Modifier.entrance(entrance.dock)) {
             MinimalAppList(
                 entries = if (queryState.text.isBlank()) state.dock else state.searchResults.map { DockEntry.App(it) },
@@ -642,14 +666,25 @@ private fun ReadabilityScrims(tint: WallpaperTint, minimal: Boolean) {
 }
 
 @Composable
-internal fun ClockWidget(now: ZonedDateTime, use24Hour: Boolean, tint: WallpaperTint, style: LauncherStyle, onClick: () -> Unit) {
+internal fun ClockWidget(
+    now: ZonedDateTime,
+    use24Hour: Boolean,
+    tint: WallpaperTint,
+    style: LauncherStyle,
+    onClick: () -> Unit,
+    battery: BatteryGlance? = null,
+) {
+    if (style.clockFace != ClockFace.CLASSIC) {
+        StyledClock(now, use24Hour, tint, style, battery?.takeIf { style.clockBattery }, onClick)
+        return
+    }
     val locale = LocalConfiguration.current.locales[0]
     val time = now.format(DateTimeFormatter.ofPattern(if (use24Hour) "HH:mm" else "h:mm", locale))
     val meridiem = if (use24Hour) null else now.format(DateTimeFormatter.ofPattern("a", locale))
-    val date = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", locale))
+    val date = dateLine(now, locale, battery?.takeIf { style.clockBattery })
     Column(Modifier.clickable(onClick = onClick, onClickLabel = "Open clock")) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(time, style = clockTextStyle(tint, style))
+            Text(time, style = clockTextStyle(tint, style).withClockFont(style.clockFont))
             meridiem?.let {
                 Spacer(Modifier.width(6.dp))
                 Text(

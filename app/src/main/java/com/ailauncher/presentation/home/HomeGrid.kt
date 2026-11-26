@@ -60,6 +60,7 @@ import com.ailauncher.domain.model.LauncherWidgetConfig
 import com.ailauncher.domain.model.LauncherWidgetKind
 import com.ailauncher.domain.home.DropAction
 import com.ailauncher.presentation.components.AppGridTile
+import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.components.FolderTile
 import com.ailauncher.presentation.components.TileDragCallbacks
 import com.ailauncher.presentation.theme.WallpaperTint
@@ -149,6 +150,7 @@ fun HomeGrid(
                                 onClick = { bounds -> actions.onLaunch(app, bounds) },
                                 onLongClick = { actions.onAppLongPress(item, app) },
                                 iconSize = 52.dp,
+                                showLabel = LocalLauncherStyle.current.homeLabels,
                                 labelColor = tint.content,
                                 labelShadow = tint.shadow,
                                 badgeCount = badges(app),
@@ -162,6 +164,7 @@ fun HomeGrid(
                                 apps = appsOfFolder(folder),
                                 onClick = { actions.onOpenFolder(folder) },
                                 onLongClick = { actions.onFolderLongPress(item, folder) },
+                                showLabel = LocalLauncherStyle.current.homeLabels,
                                 labelColor = tint.content,
                                 labelShadow = tint.shadow,
                                 drag = drag?.callbacksFor(item),

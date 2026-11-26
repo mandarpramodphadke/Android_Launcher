@@ -10,6 +10,7 @@ import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
 import com.ailauncher.data.notifications.NotificationDigestRepositoryImpl
 import com.ailauncher.data.packages.AppIconFetcher
+import com.ailauncher.data.packages.IconPackRepository
 import com.ailauncher.data.packages.ShortcutIconFetcher
 import com.ailauncher.data.packages.ShortcutRepositoryImpl
 import com.ailauncher.data.packages.PackageChangeReceiver
@@ -37,6 +38,7 @@ class AiLauncherApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject lateinit var llmEngine: LlmEngine
     @Inject lateinit var shortcutRepository: ShortcutRepositoryImpl
     @Inject lateinit var notificationDigest: NotificationDigestRepositoryImpl
+    @Inject lateinit var iconPacks: IconPackRepository
 
     @Inject @ApplicationScope
     lateinit var appScope: CoroutineScope
@@ -87,7 +89,7 @@ class AiLauncherApp : Application(), Configuration.Provider, SingletonImageLoade
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             .components {
-                add(AppIconFetcher.Factory(packageManager))
+                add(AppIconFetcher.Factory(packageManager, iconPacks, resources.displayMetrics.densityDpi))
                 add(AppIconFetcher.Key())
                 // Long-press menu shortcut icons (LauncherApps.getShortcutIconDrawable).
                 add(ShortcutIconFetcher.Factory(shortcutRepository))

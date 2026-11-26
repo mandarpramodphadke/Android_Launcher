@@ -126,3 +126,6 @@ data class AppShortcut(
     val shortLabel: String,
     val longLabel: String?,
 )
+
+/** The phone's battery, for the line under the home screen clock. */
+data class BatteryGlance(val percent: Int, val charging: Boolean)

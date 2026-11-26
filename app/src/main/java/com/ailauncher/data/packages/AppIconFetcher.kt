@@ -23,6 +23,7 @@ import coil3.fetch.ImageFetchResult
 import coil3.key.Keyer
 import coil3.request.Options
 import coil3.size.pxOrElse
+import com.ailauncher.domain.model.IconShape
 import com.ailauncher.domain.model.IconStyle
 
 /**
@@ -38,6 +39,9 @@ data class AppIconData(
     /** ARGB colours of themed icons: the tile and the glyph drawn on it. */
     val themedBackground: Int = 0,
     val themedForeground: Int = 0,
+    /** Icon pack to take the icon from (full version); null uses the app's own icon. */
+    val iconPack: String? = null,
+    val shape: IconShape = IconShape.SYSTEM,
 )
 
 /**
@@ -47,14 +51,27 @@ data class AppIconData(
  * Themed icons use the app's Android 13 monochrome layer, tinted with the theme and placed on a
  * theme-coloured tile; apps that ship no monochrome layer (and every app before Android 13) are
  * shown desaturated so the grid still reads as one palette.
+ *
+ * With an icon pack, the pack's icon wins; apps the pack doesn't cover are drawn on the pack's
+ * back when it has one. Adaptive icons are cut to the chosen [IconShape].
  */
 class AppIconFetcher(
     private val data: AppIconData,
     private val options: Options,
     private val packageManager: PackageManager,
+    private val iconPacks: IconPackRepository,
+    private val densityDpi: Int,
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
+        val width = options.size.width.pxOrElse { DEFAULT_SIZE_PX }.coerceIn(16, MAX_SIZE_PX)
+        val height = options.size.height.pxOrElse { width }.coerceIn(16, MAX_SIZE_PX)
+        val component = ComponentName(data.packageName, data.activityName)
+        val packIcon = data.iconPack?.let { pack -> runCatching { iconPacks.iconFor(pack, component, densityDpi) }.getOrNull() }
+        if (packIcon is PackIcon.Mapped) {
+            val bitmap = packIcon.drawable.toBitmap(width, height).let { if (data.style == IconStyle.GRAYSCALE) it.desaturated() else it }
+            return ImageFetchResult(image = bitmap.asImage(), isSampled = true, dataSource = DataSource.DISK)
+        }
         val drawable = try {
             packageManager.getActivityIcon(ComponentName(data.packageName, data.activityName))
         } catch (_: PackageManager.NameNotFoundException) {
@@ -64,16 +81,16 @@ class AppIconFetcher(
                 packageManager.defaultActivityIcon
             }
         }
-        val width = options.size.width.pxOrElse { DEFAULT_SIZE_PX }.coerceIn(16, MAX_SIZE_PX)
-        val height = options.size.height.pxOrElse { width }.coerceIn(16, MAX_SIZE_PX)
-        val bitmap = when (data.style) {
-            IconStyle.ORIGINAL -> drawable.toBitmap(width, height)
-            IconStyle.GRAYSCALE -> drawable.toBitmap(width, height).desaturated()
+        val shape = data.shape
+        val styled = when (data.style) {
+            IconStyle.ORIGINAL -> IconShapes.render(drawable, shape, width, height)
+            IconStyle.GRAYSCALE -> IconShapes.render(drawable, shape, width, height).desaturated()
             IconStyle.THEMED -> {
                 val themed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) themed(drawable) else null
-                themed?.toBitmap(width, height) ?: drawable.toBitmap(width, height).desaturated()
+                themed?.let { IconShapes.render(it, shape, width, height) } ?: IconShapes.render(drawable, shape, width, height).desaturated()
             }
         }
+        val bitmap = if (packIcon is PackIcon.Composed) IconShapes.compose(styled, packIcon, width, height) else styled
         return ImageFetchResult(
             image = bitmap.asImage(),
             isSampled = true,
@@ -99,9 +116,13 @@ class AppIconFetcher(
         return out
     }
 
-    class Factory(private val packageManager: PackageManager) : Fetcher.Factory<AppIconData> {
+    class Factory(
+        private val packageManager: PackageManager,
+        private val iconPacks: IconPackRepository,
+        private val densityDpi: Int,
+    ) : Fetcher.Factory<AppIconData> {
         override fun create(data: AppIconData, options: Options, imageLoader: ImageLoader): Fetcher =
-            AppIconFetcher(data, options, packageManager)
+            AppIconFetcher(data, options, packageManager, iconPacks, densityDpi)
     }
 
     class Key : Keyer<AppIconData> {
@@ -114,6 +135,8 @@ class AppIconFetcher(
                     .append(Integer.toHexString(data.themedBackground)).append(':')
                     .append(Integer.toHexString(data.themedForeground))
             }
+            data.iconPack?.let { append("#pack:").append(it) }
+            if (data.shape != IconShape.SYSTEM) append("#shape:").append(data.shape.name)
         }
     }
 

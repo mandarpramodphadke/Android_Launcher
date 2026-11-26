@@ -1,5 +1,15 @@
 package com.ailauncher.presentation
 
+import com.ailauncher.data.media.NowPlaying
+import com.ailauncher.domain.model.BatteryGlance
+import com.ailauncher.domain.model.ClockFace
+import com.ailauncher.domain.model.ClockFont
+import com.ailauncher.domain.model.ContactMatch
+import com.ailauncher.domain.model.FileEntry
+import com.ailauncher.domain.model.IconShape
+import com.ailauncher.domain.search.QuickAnswers
+import com.ailauncher.domain.search.SettingsShortcuts
+import com.ailauncher.presentation.home.InstantResults
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -184,6 +194,28 @@ class ThemeScreenshotTest {
             add(Shot("chat-classic-light-day-plan") { Chat(settings(AppTheme.CLASSIC, ThemeMode.LIGHT), DayPlanConversation) })
 
             // 1.4: the launcher's to-do widgets and smart folders.
+            // 1.7 looks (full version): clock faces with the battery, icon shapes, music, instant search.
+            add(Shot("home-clock-stacked-material-you") { Home(settings(AppTheme.MATERIAL_YOU).copy(clockFace = ClockFace.STACKED), DarkWallpaper, WallpaperTint.Light, battery = Battery) })
+            add(Shot("home-clock-analog-classic-light") { Home(settings(AppTheme.CLASSIC).copy(clockFace = ClockFace.ANALOG), LightWallpaper, WallpaperTint.Dark, battery = Battery) })
+            add(Shot("home-clock-words-neon") { Home(settings(AppTheme.NEON).copy(clockFace = ClockFace.WORDS, clockFont = ClockFont.SERIF), DarkWallpaper, WallpaperTint.Light, battery = Battery) })
+            add(Shot("home-clock-slim-bold-colourful") { Home(settings(AppTheme.COLORFUL).copy(clockFace = ClockFace.SLIM, clockFont = ClockFont.BOLD), DarkWallpaper, WallpaperTint.Light, battery = Battery) })
+            add(Shot("home-icons-no-labels-large") { Home(settings(AppTheme.MATERIAL_YOU).copy(showHomeLabels = false, iconSizePercent = 120, iconShape = IconShape.CIRCLE), DarkWallpaper, WallpaperTint.Light) })
+            add(Shot("home-music-material-you") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, nowPlaying = Playing) })
+            add(Shot("home-music-minimal") { Home(settings(AppTheme.MONOCHROME).copy(minimalMode = true), DarkWallpaper, WallpaperTint.Light, nowPlaying = Playing) })
+            add(Shot("home-instant-sum-material-you") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, query = "15% of 2400", instant = InstantResults(answer = QuickAnswers.answer("15% of 2400"))) })
+            add(Shot("home-instant-results-classic-light") {
+                Home(
+                    settings(AppTheme.CLASSIC, ThemeMode.LIGHT),
+                    LightWallpaper,
+                    WallpaperTint.Dark,
+                    query = "blue",
+                    instant = InstantResults(
+                        settings = SettingsShortcuts.search("blue"),
+                        contacts = listOf(ContactMatch("Blue Tailors", "+44 20 7946 0000", "Work")),
+                        files = listOf(FileEntry("content://x/1", "blueprint.pdf", "application/pdf", 2_400_000, null, null, "Download/", true)),
+                    ),
+                )
+            })
             add(Shot("home-widgets-material-you") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, items = WidgetHomeItems, widgets = true) })
             add(Shot("home-widgets-amoled") { Home(settings(AppTheme.AMOLED), DarkWallpaper, WallpaperTint.Light, items = WidgetHomeItems, widgets = true) })
             add(Shot("home-widgets-colourful-light-page-2") {
@@ -240,6 +272,10 @@ class ThemeScreenshotTest {
         page: Int = 0,
         items: List<HomeItem> = HomeItems,
         widgets: Boolean = false,
+        battery: BatteryGlance? = null,
+        nowPlaying: NowPlaying? = null,
+        query: String = "",
+        instant: InstantResults = InstantResults(),
     ) {
         AiLauncherTheme(settings) {
             Box(Modifier.fillMaxSize().background(wallpaper)) {
@@ -263,15 +299,18 @@ class ThemeScreenshotTest {
                         ),
                         settings = settings,
                         widgetData = if (widgets) WidgetData else LauncherWidgetData(),
+                        battery = battery,
                     ),
                     tint = tint,
                     style = LocalLauncherStyle.current,
                     pagerState = rememberPagerState(initialPage = page) { 2 },
-                    queryState = rememberTextFieldState(),
+                    queryState = rememberTextFieldState(query),
                     clip = null,
                     widgetHost = null,
                     editingWidgetId = null,
                     callbacks = HomeCallbacks(dragEnabled = true),
+                    nowPlaying = nowPlaying,
+                    instant = instant,
                 )
             }
         }
@@ -476,6 +515,19 @@ class ThemeScreenshotTest {
 
     private companion object {
         val Now: ZonedDateTime = ZonedDateTime.of(2026, 11, 24, 9, 41, 0, 0, ZoneId.of("UTC"))
+
+        val Battery = BatteryGlance(82, charging = true)
+        val Playing = NowPlaying(
+            packageName = "com.example.music",
+            appLabel = "Music",
+            title = "Midnight City",
+            artist = "M83",
+            art = null,
+            isPlaying = true,
+            canSkipNext = true,
+            canSkipPrevious = true,
+            sessionToken = "session",
+        )
 
         val DarkWallpaper = Brush.linearGradient(
             listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF3A2C5A)),

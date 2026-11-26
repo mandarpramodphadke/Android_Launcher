@@ -51,6 +51,17 @@ internal object SettingsKeys {
     val ASSISTANT_INSTRUCTIONS = stringPreferencesKey("assistant_instructions")
     val HIDDEN_CALENDARS = stringSetPreferencesKey("hidden_calendar_ids")
     val REMINDER_CALENDAR = longPreferencesKey("reminder_calendar_id")
+    val ICON_PACK = stringPreferencesKey("icon_pack")
+    val ICON_SHAPE = stringPreferencesKey("icon_shape")
+    val ICON_SIZE = intPreferencesKey("icon_size_percent")
+    val HOME_LABELS = booleanPreferencesKey("home_labels")
+    val CLOCK_FACE = stringPreferencesKey("clock_face")
+    val CLOCK_FONT = stringPreferencesKey("clock_font")
+    val CLOCK_BATTERY = booleanPreferencesKey("clock_battery")
+    val BLUR_EFFECTS = booleanPreferencesKey("blur_effects")
+    val WALLPAPER_PARALLAX = booleanPreferencesKey("wallpaper_parallax")
+    val MEDIA_CONTROLS = booleanPreferencesKey("media_controls")
+    val INSTANT_SEARCH = booleanPreferencesKey("instant_search")
 
     val CONTEXT_SIZE = intPreferencesKey("model_context_size")
     val THREADS = intPreferencesKey("model_threads")
@@ -104,6 +115,17 @@ internal fun Preferences.toLauncherSettings(): LauncherSettings {
         ),
         hiddenCalendarIds = this[SettingsKeys.HIDDEN_CALENDARS].orEmpty().mapNotNull { it.toLongOrNull() }.toSet(),
         reminderCalendarId = this[SettingsKeys.REMINDER_CALENDAR]?.takeIf { it > 0 },
+        iconPackPackage = this[SettingsKeys.ICON_PACK]?.takeIf { it.isNotBlank() },
+        iconShape = enumOrDefault(this[SettingsKeys.ICON_SHAPE], defaults.iconShape),
+        iconSizePercent = (this[SettingsKeys.ICON_SIZE] ?: defaults.iconSizePercent).coerceIn(LauncherSettings.MIN_ICON_SIZE, LauncherSettings.MAX_ICON_SIZE),
+        showHomeLabels = this[SettingsKeys.HOME_LABELS] ?: defaults.showHomeLabels,
+        clockFace = enumOrDefault(this[SettingsKeys.CLOCK_FACE], defaults.clockFace),
+        clockFont = enumOrDefault(this[SettingsKeys.CLOCK_FONT], defaults.clockFont),
+        clockShowsBattery = this[SettingsKeys.CLOCK_BATTERY] ?: defaults.clockShowsBattery,
+        blurEffects = this[SettingsKeys.BLUR_EFFECTS] ?: defaults.blurEffects,
+        wallpaperParallax = this[SettingsKeys.WALLPAPER_PARALLAX] ?: defaults.wallpaperParallax,
+        mediaControls = this[SettingsKeys.MEDIA_CONTROLS] ?: defaults.mediaControls,
+        instantSearch = this[SettingsKeys.INSTANT_SEARCH] ?: defaults.instantSearch,
     )
 }
 
@@ -145,6 +167,17 @@ internal fun MutablePreferences.writeLauncherSettings(s: LauncherSettings) {
     this[SettingsKeys.ASSISTANT_INSTRUCTIONS] = s.assistant.instructions.take(AssistantProfile.MAX_INSTRUCTIONS)
     this[SettingsKeys.HIDDEN_CALENDARS] = s.hiddenCalendarIds.map { it.toString() }.toSet()
     if (s.reminderCalendarId != null) this[SettingsKeys.REMINDER_CALENDAR] = s.reminderCalendarId else remove(SettingsKeys.REMINDER_CALENDAR)
+    if (s.iconPackPackage.isNullOrBlank()) remove(SettingsKeys.ICON_PACK) else this[SettingsKeys.ICON_PACK] = s.iconPackPackage
+    this[SettingsKeys.ICON_SHAPE] = s.iconShape.name
+    this[SettingsKeys.ICON_SIZE] = s.iconSizePercent.coerceIn(LauncherSettings.MIN_ICON_SIZE, LauncherSettings.MAX_ICON_SIZE)
+    this[SettingsKeys.HOME_LABELS] = s.showHomeLabels
+    this[SettingsKeys.CLOCK_FACE] = s.clockFace.name
+    this[SettingsKeys.CLOCK_FONT] = s.clockFont.name
+    this[SettingsKeys.CLOCK_BATTERY] = s.clockShowsBattery
+    this[SettingsKeys.BLUR_EFFECTS] = s.blurEffects
+    this[SettingsKeys.WALLPAPER_PARALLAX] = s.wallpaperParallax
+    this[SettingsKeys.MEDIA_CONTROLS] = s.mediaControls
+    this[SettingsKeys.INSTANT_SEARCH] = s.instantSearch
 }
 
 internal fun Preferences.toModelConfig(): ModelConfig {

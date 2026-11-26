@@ -69,8 +69,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 8
-        versionName = "1.6.1"
+        versionCode = 9
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -119,6 +119,10 @@ android {
     // CHAT_CUSTOMIZATION (compact think button, chat background, assistant behaviour),
     // MORE_CALENDARS (choose device calendars, subscribe to calendar links, import .ics files).
     // 1.6.1: BETTER_ANSWERS (a system prompt that answers general questions, and get_device_info).
+    // 1.7: ICON_CUSTOMIZATION (icon packs, shapes, size, home labels), CLOCK_STYLES (clock faces,
+    // fonts, battery by the date), BLUR_EFFECTS (blur behind the drawer and sheets, wallpaper
+    // parallax), MEDIA_CONTROLS (what's playing on the home screen) and INSTANT_SEARCH (contacts,
+    // settings, to-dos, files, sums and unit conversions in the command bar).
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -134,6 +138,11 @@ android {
             buildConfigField("boolean", "CHAT_CUSTOMIZATION", "true")
             buildConfigField("boolean", "MORE_CALENDARS", "true")
             buildConfigField("boolean", "BETTER_ANSWERS", "true")
+            buildConfigField("boolean", "ICON_CUSTOMIZATION", "true")
+            buildConfigField("boolean", "CLOCK_STYLES", "true")
+            buildConfigField("boolean", "BLUR_EFFECTS", "true")
+            buildConfigField("boolean", "MEDIA_CONTROLS", "true")
+            buildConfigField("boolean", "INSTANT_SEARCH", "true")
         }
         create("play") {
             dimension = "distribution"
@@ -150,6 +159,11 @@ android {
             buildConfigField("boolean", "CHAT_CUSTOMIZATION", "false")
             buildConfigField("boolean", "MORE_CALENDARS", "false")
             buildConfigField("boolean", "BETTER_ANSWERS", "false")
+            buildConfigField("boolean", "ICON_CUSTOMIZATION", "false")
+            buildConfigField("boolean", "CLOCK_STYLES", "false")
+            buildConfigField("boolean", "BLUR_EFFECTS", "false")
+            buildConfigField("boolean", "MEDIA_CONTROLS", "false")
+            buildConfigField("boolean", "INSTANT_SEARCH", "false")
         }
     }
 

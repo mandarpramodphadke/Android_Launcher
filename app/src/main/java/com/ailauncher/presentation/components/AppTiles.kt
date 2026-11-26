@@ -66,8 +66,11 @@ fun AppIcon(app: AppInfo, size: Dp, modifier: Modifier = Modifier, badgeCount: I
     val style = LocalLauncherStyle.current.iconStyle
     val background = if (style == IconStyle.THEMED) MaterialTheme.colorScheme.primaryContainer.toArgb() else 0
     val foreground = if (style == IconStyle.THEMED) MaterialTheme.colorScheme.onPrimaryContainer.toArgb() else 0
-    val model = remember(app.packageName, app.activityName, app.updatedAt, style, background, foreground) {
-        AppIconData(app.packageName, app.activityName, app.updatedAt, style, background, foreground)
+    val launcherStyle = LocalLauncherStyle.current
+    val pack = launcherStyle.iconPack
+    val shape = launcherStyle.iconShape
+    val model = remember(app.packageName, app.activityName, app.updatedAt, style, background, foreground, pack, shape) {
+        AppIconData(app.packageName, app.activityName, app.updatedAt, style, background, foreground, pack, shape)
     }
     Box(modifier.size(size)) {
         AsyncImage(model = model, contentDescription = null, modifier = Modifier.size(size))
@@ -143,7 +146,7 @@ fun AppGridTile(
             .padding(vertical = 6.dp, horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        AppIcon(app, iconSize, Modifier.trackBounds(bounds), badgeCount = badgeCount)
+        AppIcon(app, iconSize * LocalLauncherStyle.current.iconScale, Modifier.trackBounds(bounds), badgeCount = badgeCount)
         if (showLabel) {
             Spacer(Modifier.height(4.dp))
             TileLabel(app.label, labelColor, labelShadow)

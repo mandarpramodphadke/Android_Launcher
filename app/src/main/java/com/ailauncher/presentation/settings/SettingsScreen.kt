@@ -1,6 +1,7 @@
 package com.ailauncher.presentation.settings
 
 import android.content.Intent
+import androidx.core.net.toUri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -111,7 +112,11 @@ fun SettingsScreen(
     var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     ThemedSystemBarIcons()
-    OnResume { viewModel.refreshSystemStatus() }
+    val iconPacks by viewModel.iconPacks.collectAsStateWithLifecycle()
+    OnResume {
+        viewModel.refreshSystemStatus()
+        viewModel.refreshIconPacks()
+    }
     LaunchedEffect(viewModel) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
 
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { viewModel.refreshSystemStatus() }
@@ -264,6 +269,17 @@ fun SettingsScreen(
                     )
                 }
             }
+            looksSettings(
+                settings = state.settings,
+                iconPacks = iconPacks,
+                onUpdate = viewModel::updateSettings,
+                onFindIconPacks = {
+                    val search = Intent(Intent.ACTION_VIEW, "market://search?q=icon%20pack&c=apps".toUri())
+                    if (runCatching { context.startActivity(search) }.isFailure) {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, "https://play.google.com/store/search?q=icon%20pack&c=apps".toUri())) }
+                    }
+                },
+            )
 
             // ---------------------------------------------------------------- Gestures
             item { SectionTitle("Home screen & gestures") }
@@ -295,6 +311,16 @@ fun SettingsScreen(
                     viewModel.updateSettings { it.copy(showAiCommandBar = on) }
                 }
             }
+            homeExtrasSettings(
+                settings = state.settings,
+                notificationAccess = state.system.notificationListener,
+                contactsAccess = state.system.contactsAccess,
+                onUpdate = viewModel::updateSettings,
+                onAllowNotificationAccess = {
+                    SpecialAccess.open(context, SpecialAccess.notificationListenerIntent(context), Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+                onAllowContacts = { permissionLauncher.launch(arrayOf(android.Manifest.permission.READ_CONTACTS)) },
+            )
 
             // ---------------------------------------------------------------- Drawer
             item { SectionTitle("App drawer") }
@@ -633,7 +659,7 @@ private fun ProfileCard(state: SettingsUiState, onSignIn: () -> Unit, onSignOut:
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Column {
         HorizontalDivider(Modifier.padding(top = 12.dp))
         Text(
@@ -646,7 +672,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun SwitchSetting(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchSetting(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
     AppListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
@@ -672,7 +698,7 @@ private fun PermissionSetting(title: String, subtitle: String, granted: Boolean,
 }
 
 @Composable
-private fun ActionSetting(title: String, subtitle: String?, onClick: () -> Unit) {
+internal fun ActionSetting(title: String, subtitle: String?, onClick: () -> Unit) {
     AppListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
@@ -681,7 +707,7 @@ private fun ActionSetting(title: String, subtitle: String?, onClick: () -> Unit)
 }
 
 @Composable
-private fun <T> SegmentedSetting(
+internal fun <T> SegmentedSetting(
     title: String,
     options: List<Pair<T, String>>,
     selected: T,
@@ -713,7 +739,7 @@ private fun <T> SegmentedSetting(
 }
 
 @Composable
-private fun <T> ChoiceSetting(title: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+internal fun <T> ChoiceSetting(title: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         AppListItem(

@@ -31,6 +31,26 @@ Google Play doesn't allow, such as all-files access, stay in the full version.
 | 1.6 | Compact think button, chat background, assistant behaviour | `CHAT_CUSTOMIZATION` | Full only: waiting for a phone test |
 | 1.6 | Choose device calendars, calendar links, .ics import | `MORE_CALENDARS` | Full only: waiting for a phone test |
 | 1.6.1 | Answers to general questions, "which model suits my phone" (`get_device_info`) | `BETTER_ANSWERS` | Full only: waiting for a phone test |
+| 1.7 | Icon packs, icon shapes, icon size, hide home labels | `ICON_CUSTOMIZATION` | Full only: waiting for a phone test |
+| 1.7 | Clock styles, clock font, battery by the date | `CLOCK_STYLES` | Full only: waiting for a phone test |
+| 1.7 | Blur behind drawer and sheets, wallpaper motion | `BLUR_EFFECTS` | Full only: waiting for a phone test |
+| 1.7 | Music controls on the home screen | `MEDIA_CONTROLS` | Full only: waiting for a phone test |
+| 1.7 | Instant search: contacts, settings, to-dos, files, sums, conversions | `INSTANT_SEARCH` | Full only: waiting for a phone test |
+
+Policy check for 1.7: no new permission and nothing new leaves the phone.
+- *Icon packs* are found with `<queries>` for the intents icon packs declare (package visibility by
+  intent, not `QUERY_ALL_PACKAGES`), and their icons are read from the pack's resources on the
+  phone. The queries live in `src/full/AndroidManifest.xml`; when the feature graduates, move them
+  to `src/main/AndroidManifest.xml`.
+- *Music controls* read the active media sessions, which Android lists only to an enabled
+  notification listener: the notification access the app already asks for. The title, artist and
+  art are shown on the home screen and not stored or sent, so the Data safety answers don't
+  change.
+- *Instant search* uses the existing contacts permission (only if the user granted it), the
+  existing file access (picked folders in the Play version), the to-do database and a built-in
+  list of system settings pages. Sums and conversions are computed on the phone.
+- Clock styles, the battery line (the system's battery broadcast, no permission) and the blur
+  effects need nothing.
 
 Policy check for 1.6.1: no new permission and no new data leaving the phone. `get_device_info`
 reads the same public, permission-free details as the System info page (no device identifiers)

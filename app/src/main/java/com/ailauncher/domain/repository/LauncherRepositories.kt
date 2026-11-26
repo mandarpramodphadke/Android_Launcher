@@ -158,6 +158,9 @@ interface FileRepository {
     suspend fun notModifiedSince(cutoffMillis: Long, type: FileTypeFilter, limit: Int): FileQueryResult
     suspend fun openedBetween(startMillis: Long, endMillis: Long, type: FileTypeFilter, limit: Int): List<FileEntry>
     suspend fun recordAccess(file: FileEntry, accessType: String)
+
+    /** Files whose name contains [query], newest first (the command bar's instant search). */
+    suspend fun searchByName(query: String, limit: Int): List<FileEntry> = emptyList()
 }
 
 /** Opt-in, on-device notification digest (auto-purged after 24 h). */
