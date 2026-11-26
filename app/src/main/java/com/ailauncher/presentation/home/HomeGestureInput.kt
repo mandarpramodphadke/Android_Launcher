@@ -21,32 +21,33 @@ internal class MultiTouchTracker {
 /**
  * CUSTOM_GESTURES: two fingers swiped down anywhere on the home screen. It watches on the Initial
  * pass without consuming anything, so taps, the drawer drag and the pager keep working.
+ *
+ * Always attached, with [enabled] read when a gesture starts: adding or removing this modifier
+ * while a finger is down (it used to switch off as the assistant panel slid in) changed the home
+ * screen's pointer-input chain mid-swipe, and the pager stopped handing its drag to the panel.
  */
-internal fun Modifier.twoFingerSwipeDown(enabled: Boolean, tracker: MultiTouchTracker, onSwipe: () -> Unit): Modifier =
-    if (!enabled) {
-        this
-    } else {
-        pointerInput(tracker) {
-            val threshold = 72.dp.toPx()
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                tracker.active = false
-                val starts = HashMap<PointerId, Offset>()
-                var fired = false
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val pressed = event.changes.filter { it.pressed }
-                    if (pressed.size >= 2) {
-                        tracker.active = true
-                        pressed.forEach { starts.getOrPut(it.id) { it.position } }
-                        val moved = pressed.mapNotNull { change -> starts[change.id]?.let { change.position.y - it.y } }
-                        if (!fired && moved.size >= 2 && moved.all { it > threshold }) {
-                            fired = true
-                            onSwipe()
-                        }
+internal fun Modifier.twoFingerSwipeDown(enabled: () -> Boolean, tracker: MultiTouchTracker, onSwipe: () -> Unit): Modifier =
+    pointerInput(tracker) {
+        val threshold = 72.dp.toPx()
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            tracker.active = false
+            if (!enabled()) return@awaitEachGesture
+            val starts = HashMap<PointerId, Offset>()
+            var fired = false
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.size >= 2) {
+                    tracker.active = true
+                    pressed.forEach { starts.getOrPut(it.id) { it.position } }
+                    val moved = pressed.mapNotNull { change -> starts[change.id]?.let { change.position.y - it.y } }
+                    if (!fired && moved.size >= 2 && moved.all { it > threshold }) {
+                        fired = true
+                        onSwipe()
                     }
-                    if (event.changes.none { it.pressed }) break
                 }
+                if (event.changes.none { it.pressed }) break
             }
         }
     }

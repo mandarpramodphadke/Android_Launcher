@@ -40,6 +40,11 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 Full version first (flags `ASSISTANT_MEMORY`, `SPOKEN_REPLIES`, `CUSTOM_GESTURES`, `DOCK_AND_GRID`).
 
+**1.8.1:** swiping past the last home page opens the assistant again. In 1.8.0 the two-finger
+gesture's detector switched itself off as the panel started to slide in, which changed the home
+screen's touch handling mid-swipe and stopped the pager from handing the drag to the panel. It now
+stays attached; `HomeSwipeToChatTest` swipes the real home content to keep it that way.
+
 - **The assistant remembers.** "Remember that my car is on level 3", "my wife's birthday is
   4 March, keep that in mind", "FYI I'm vegetarian, make a note of it". Saved at once and shown on
   a card; "what do you remember?" lists them, "forget my car" asks first, then deletes. The model

@@ -29,7 +29,7 @@ class TwoFingerSwipeTest {
 
     private fun show(enabled: Boolean = true) {
         compose.setContent {
-            Box(Modifier.fillMaxSize().testTag("home").twoFingerSwipeDown(enabled, tracker) { swipes++ })
+            Box(Modifier.fillMaxSize().testTag("home").twoFingerSwipeDown({ enabled }, tracker) { swipes++ })
         }
     }
 

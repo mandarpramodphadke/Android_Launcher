@@ -692,10 +692,17 @@ fun LauncherHomeScreen(
                         alpha *= 1f - panels.chatProgress
                     }
                 }
-                .twoFingerSwipeDown(
-                    enabled = BuildConfig.CUSTOM_GESTURES && editingWidgetId == null && !(panelsEnabled && panels.showingPanel),
-                    tracker = multiTouch,
-                ) { currentRunGesture(HomeGesture.TWO_FINGER_SWIPE_DOWN) }
+                // Attached for the whole session in builds with the feature (see twoFingerSwipeDown).
+                .then(
+                    if (BuildConfig.CUSTOM_GESTURES) {
+                        Modifier.twoFingerSwipeDown(
+                            enabled = { currentEditing == null && !(panelsEnabled && panels.showingPanel) },
+                            tracker = multiTouch,
+                        ) { currentRunGesture(HomeGesture.TWO_FINGER_SWIPE_DOWN) }
+                    } else {
+                        Modifier
+                    },
+                )
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onTap = {
