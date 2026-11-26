@@ -13,7 +13,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.ailauncher.BuildConfig
 import com.ailauncher.domain.model.AppCategory
+import com.ailauncher.domain.model.ClockFace
+import com.ailauncher.domain.model.ClockFont
+import com.ailauncher.domain.model.IconShape
 import com.ailauncher.domain.model.AppTheme
 import com.ailauncher.domain.model.HomeTextColor
 import com.ailauncher.domain.model.IconStyle
@@ -32,6 +36,19 @@ data class LauncherStyle(
     val homeTextShade: Boolean = true,
     /** Accent per [AppCategory] ordinal for themes that colour-code categories, else null. */
     val categoryColors: List<Color>? = null,
+    /** Icon pack package (full version), else null. */
+    val iconPack: String? = null,
+    val iconShape: IconShape = IconShape.SYSTEM,
+    /** Multiplies every app icon's size (1 = default). */
+    val iconScale: Float = 1f,
+    /** Names under icons on the home pages. */
+    val homeLabels: Boolean = true,
+    val clockFace: ClockFace = ClockFace.CLASSIC,
+    val clockFont: ClockFont = ClockFont.DEFAULT,
+    val clockBattery: Boolean = false,
+    /** Blur behind the drawer, folders and menus. */
+    val blur: Boolean = false,
+    val wallpaperParallax: Boolean = false,
 ) {
     fun categoryColor(category: AppCategory?): Color? = category?.let { categoryColors?.getOrNull(it.ordinal) }
 }
@@ -64,7 +81,7 @@ fun AiLauncherTheme(settings: LauncherSettings, content: @Composable () -> Unit)
         homeTextColor = settings.homeTextColor,
         homeTextShade = settings.homeTextShade,
         categoryColors = LauncherColorSchemes.categoryColors(settings.appTheme, dark),
-    )
+    ).withLooks(settings)
     MaterialTheme(colorScheme = scheme, typography = Typography()) {
         // Material infers content colour only for exact scheme colours; anything drawn on a
         // translucent surface would otherwise fall back to black, even in dark themes.
@@ -74,4 +91,25 @@ fun AiLauncherTheme(settings: LauncherSettings, content: @Composable () -> Unit)
             content = content,
         )
     }
+}
+
+/**
+ * The 1.7 look settings, each only where its feature is on in this build (full version first);
+ * elsewhere the launcher looks as before, even if a backup from the full version set them.
+ */
+fun LauncherStyle.withLooks(settings: LauncherSettings): LauncherStyle {
+    val icons = BuildConfig.ICON_CUSTOMIZATION
+    val clock = BuildConfig.CLOCK_STYLES
+    val effects = BuildConfig.BLUR_EFFECTS
+    return copy(
+        iconPack = if (icons) settings.iconPackPackage else null,
+        iconShape = if (icons) settings.iconShape else IconShape.SYSTEM,
+        iconScale = if (icons) settings.iconSizePercent.coerceIn(LauncherSettings.MIN_ICON_SIZE, LauncherSettings.MAX_ICON_SIZE) / 100f else 1f,
+        homeLabels = !icons || settings.showHomeLabels,
+        clockFace = if (clock) settings.clockFace else ClockFace.CLASSIC,
+        clockFont = if (clock) settings.clockFont else ClockFont.DEFAULT,
+        clockBattery = clock && settings.clockShowsBattery,
+        blur = effects && settings.blurEffects && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+        wallpaperParallax = effects && settings.wallpaperParallax,
+    )
 }

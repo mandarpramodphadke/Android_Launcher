@@ -187,7 +187,7 @@ fun FolderTile(
             .padding(vertical = 6.dp, horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        FolderIcon(folder, apps, iconSize)
+        FolderIcon(folder, apps, iconSize * LocalLauncherStyle.current.iconScale)
         if (showLabel) {
             Spacer(Modifier.height(4.dp))
             TileLabel(folder.name, labelColor, labelShadow)

@@ -7,6 +7,9 @@ import com.ailauncher.domain.model.AppTheme
 import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.AssistantTone
 import com.ailauncher.domain.model.ChatBackground
+import com.ailauncher.domain.model.ClockFace
+import com.ailauncher.domain.model.ClockFont
+import com.ailauncher.domain.model.IconShape
 import com.ailauncher.domain.model.ResponseLength
 import com.ailauncher.domain.model.HomeTextColor
 import com.ailauncher.domain.model.IconStyle
@@ -20,6 +23,33 @@ class SettingsPreferencesTest {
     @Test
     fun emptyStoreGivesDefaults() {
         assertThat(emptyPreferences().toLauncherSettings()).isEqualTo(LauncherSettings())
+    }
+
+    @Test
+    fun roundTripsTheLooksOf17() {
+        val settings = LauncherSettings(
+            iconPackPackage = "com.example.pack",
+            iconShape = IconShape.TEARDROP,
+            iconSizePercent = 110,
+            showHomeLabels = false,
+            clockFace = ClockFace.ANALOG,
+            clockFont = ClockFont.SERIF,
+            clockShowsBattery = false,
+            blurEffects = false,
+            wallpaperParallax = false,
+            mediaControls = false,
+            instantSearch = false,
+        )
+        val prefs = mutablePreferencesOf().apply { writeLauncherSettings(settings) }
+        assertThat(prefs.toLauncherSettings()).isEqualTo(settings)
+    }
+
+    @Test
+    fun iconSizeIsClampedAndNoPackIsStoredAsAbsent() {
+        val prefs = mutablePreferencesOf().apply { writeLauncherSettings(LauncherSettings(iconSizePercent = 300, iconPackPackage = "")) }
+        val read = prefs.toLauncherSettings()
+        assertThat(read.iconSizePercent).isEqualTo(LauncherSettings.MAX_ICON_SIZE)
+        assertThat(read.iconPackPackage).isNull()
     }
 
     @Test

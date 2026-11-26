@@ -230,6 +230,23 @@ class FileRepositoryImpl @Inject constructor(
         accessDao.purgeOlderThan(now - ACCESS_LOG_RETENTION_MILLIS)
     }
 
+    override suspend fun searchByName(query: String, limit: Int): List<FileEntry> {
+        val q = query.trim()
+        if (q.length < 3) return emptyList()
+        if (usesPickedFolders) {
+            return fromFolders { files ->
+                files.filter { it.name.contains(q, ignoreCase = true) }.sortedByDescending { it.modifiedAtMillis ?: 0L }.take(limit)
+            }.files
+        }
+        val escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return query(
+            "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? ESCAPE '\\'",
+            listOf("%$escaped%"),
+            "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+            limit,
+        ).files
+    }
+
     // ------------------------------------------------------------------------------------------ //
 
     private suspend fun query(selection: String, args: List<String>, sortOrder: String, limit: Int): FileQueryResult =

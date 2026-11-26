@@ -22,7 +22,8 @@ README.md describes the app; docs/PLAY_RELEASE.md describes the Play version and
   `true` in `full`, `false` in `play`, like `BROAD_FILE_ACCESS` and `CLOUD_FEATURES`. When it
   graduates, set it to `true` for `play` (or remove the flag).
 - A new permission goes in `src/main/AndroidManifest.xml` only if Play allows it for this app.
-  Otherwise, also remove it in `src/play/AndroidManifest.xml`.
+  Otherwise, also remove it in `src/play/AndroidManifest.xml`. Manifest additions for a full-only
+  feature (such as the icon pack `<queries>`) go in `src/full/AndroidManifest.xml`.
 - `verifyPlayReleasePlayPolicy` must keep passing. Never weaken it to get a build through.
 - Build the Play bundle (`bundlePlayRelease`) only when the owner asks, or when a feature graduates.
 
@@ -72,7 +73,8 @@ README.md describes the app; docs/PLAY_RELEASE.md describes the Play version and
 
 - Full-only until the owner has tried them on their phone: `TODO_WIDGETS`, `HOME_DRAG_AND_DROP`,
   `SMART_FOLDERS` (1.4), `SYSTEM_INFO` (1.5), `CHAT_PANELS`, `CHAT_CUSTOMIZATION` and
-  `MORE_CALENDARS` (1.6), `BETTER_ANSWERS` (1.6.1); table in docs/PLAY_RELEASE.md. Their policy check passed: no new
+  `MORE_CALENDARS` (1.6), `BETTER_ANSWERS` (1.6.1), `ICON_CUSTOMIZATION`, `CLOCK_STYLES`,
+  `BLUR_EFFECTS`, `MEDIA_CONTROLS` and `INSTANT_SEARCH` (1.7); table in docs/PLAY_RELEASE.md. Their policy check passed: no new
   permission, no device identifiers. The only new network use is downloading a calendar from a
   link the user added (described in the privacy policy).
 - Before the first Play submission, set `report.form.url` (Google Form, see docs/report-form.md).

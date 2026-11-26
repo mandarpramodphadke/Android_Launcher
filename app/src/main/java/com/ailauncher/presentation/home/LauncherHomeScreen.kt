@@ -1,5 +1,6 @@
 package com.ailauncher.presentation.home
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import com.ailauncher.presentation.chat.AiChatScreen
 import com.ailauncher.presentation.components.LocalNavAnimatedVisibilityScope
@@ -180,6 +181,8 @@ fun LauncherHomeScreen(
     val folderList by foldersViewModel.folders.collectAsStateWithLifecycle()
     val editorApps by foldersViewModel.apps.collectAsStateWithLifecycle()
     val clip by viewModel.clip.collectAsStateWithLifecycle()
+    val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
+    val instant by viewModel.instantResults.collectAsStateWithLifecycle()
     val style = LocalLauncherStyle.current
     val tint = rememberWallpaperTint(style.homeTextColor)
     val context = LocalContext.current
@@ -479,6 +482,40 @@ fun LauncherHomeScreen(
         openChat(text)
     }
 
+    val extras = HomeExtrasCallbacks(
+        onMediaPlayPause = viewModel::mediaPlayPause,
+        onMediaNext = viewModel::mediaNext,
+        onMediaPrevious = viewModel::mediaPrevious,
+        onMediaOpen = viewModel::openMediaApp,
+        onCopyAnswer = viewModel::copyAnswer,
+        onSettingsPage = { page ->
+            focusManager.clearFocus()
+            viewModel.openSettingsPage(page)
+        },
+        onCallContact = { contact ->
+            focusManager.clearFocus()
+            viewModel.callContact(contact)
+        },
+        onMessageContact = { contact ->
+            focusManager.clearFocus()
+            viewModel.messageContact(contact)
+        },
+        onTodo = {
+            focusManager.clearFocus()
+            viewModel.clearQuery()
+            onOpenTodos()
+        },
+        onFile = { file ->
+            focusManager.clearFocus()
+            viewModel.openFile(file)
+        },
+    )
+
+    // Blur the home screen behind sheets and menus (full version: BLUR_EFFECTS, Android 12+).
+    val sheetOpen = sheetApp != null || folderMenu != null || openFolderId != null || folderEdit != null || showHomeMenu || showWidgetPicker || showPages
+    val sheetBlur by animateFloatAsState(if (style.blur && sheetOpen) 1f else 0f, label = "sheet-blur")
+    WallpaperParallax(enabled = style.wallpaperParallax && !style.minimal, pagerState = pagerState)
+
     val callbacks = HomeCallbacks(
         onLaunch = { app, bounds -> viewModel.launch(launchFactory(app, bounds)) },
         onAppLongPress = { app, item -> sheetApp = AppSheetTarget(app, item) },
@@ -604,6 +641,10 @@ fun LauncherHomeScreen(
                     scaleX = scale
                     scaleY = scale
                     alpha = (1f - 0.6f * drawerProgress) * (1f - 0.85f * lock)
+                    if (style.blur) {
+                        val amount = maxOf(drawerProgress, sheetBlur)
+                        renderEffect = homeBlur(amount * HOME_BLUR_RADIUS.toPx())
+                    }
                     // A panel sliding in pushes home a little to the side (parallax) and fades it,
                     // so a see-through chat (wallpaper background) shows only the wallpaper.
                     if (panelsEnabled) {
@@ -648,6 +689,9 @@ fun LauncherHomeScreen(
                 callbacks = callbacks,
                 entrance = entrance,
                 pagerNestedScroll = if (panelsEnabled) panels.pagerConnection else null,
+                nowPlaying = nowPlaying,
+                instant = instant,
+                extras = extras,
                 // Minimal mode has no pager: a sideways drag anywhere pulls the assistant in.
                 panelDrag = if (panelsEnabled && style.minimal) {
                     Modifier.draggable(

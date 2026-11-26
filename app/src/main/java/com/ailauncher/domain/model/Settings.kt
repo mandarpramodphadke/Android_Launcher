@@ -39,6 +39,29 @@ enum class IconStyle {
     GRAYSCALE,
 }
 
+/** Shape of adaptive app icons (full version: ICON_CUSTOMIZATION). [SYSTEM] keeps the phone's own mask. */
+@Serializable
+enum class IconShape { SYSTEM, CIRCLE, SQUIRCLE, ROUNDED_SQUARE, TEARDROP }
+
+/** Face of the home screen clock (full version: CLOCK_STYLES). */
+@Serializable
+enum class ClockFace {
+    /** Large time with the date below (the original clock). */
+    CLASSIC,
+    /** Hours above minutes in big digits. */
+    STACKED,
+    /** A dial with hands, the date beside it. */
+    ANALOG,
+    /** The time in words: "Twenty past four". */
+    WORDS,
+    /** One thin line: time and date. */
+    SLIM,
+}
+
+/** Typeface of the home screen clock. */
+@Serializable
+enum class ClockFont { DEFAULT, CONDENSED, SERIF, MONO, BOLD }
+
 /**
  * Assistant features that depend on the build (full first, Google Play later). Provided from
  * BuildConfig by the app module, so the domain layer stays free of Android.
@@ -123,9 +146,30 @@ data class LauncherSettings(
     val hiddenCalendarIds: Set<Long> = emptySet(),
     /** Calendar new reminders go to; null picks the primary synced calendar. */
     val reminderCalendarId: Long? = null,
+    /** Package of the icon pack in use; null uses the apps' own icons. */
+    val iconPackPackage: String? = null,
+    val iconShape: IconShape = IconShape.SYSTEM,
+    /** App icon size in percent of the default (80..120). */
+    val iconSizePercent: Int = 100,
+    /** App and folder names under icons on the home pages. */
+    val showHomeLabels: Boolean = true,
+    val clockFace: ClockFace = ClockFace.CLASSIC,
+    val clockFont: ClockFont = ClockFont.DEFAULT,
+    /** Battery level next to the date under the clock. */
+    val clockShowsBattery: Boolean = true,
+    /** Blur the home screen behind the app drawer, folders and menus (Android 12+). */
+    val blurEffects: Boolean = true,
+    /** Move the wallpaper a little as you swipe between home pages. */
+    val wallpaperParallax: Boolean = true,
+    /** What's playing, with play / pause and skip, on the home screen (needs notification access). */
+    val mediaControls: Boolean = true,
+    /** Contacts, settings, to-dos, files, sums and unit conversions as you type in the command bar. */
+    val instantSearch: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_CHAT_DIM = 0.55f
+        const val MIN_ICON_SIZE = 80
+        const val MAX_ICON_SIZE = 120
     }
 }
 

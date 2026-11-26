@@ -59,6 +59,7 @@ import com.ailauncher.presentation.components.LauncherAppsViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -77,6 +78,21 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZonedDateTime
 import javax.inject.Inject
+import com.ailauncher.data.media.NowPlaying
+import com.ailauncher.data.media.NowPlayingRepository
+import com.ailauncher.data.system.BatteryMonitor
+import com.ailauncher.domain.model.BatteryGlance
+import com.ailauncher.domain.model.ContactMatch
+import com.ailauncher.domain.model.FileEntry
+import com.ailauncher.domain.repository.ContactRepository
+import com.ailauncher.domain.repository.FileRepository
+import com.ailauncher.domain.search.QuickAnswer
+import com.ailauncher.domain.search.QuickAnswers
+import com.ailauncher.domain.search.SettingsShortcut
+import com.ailauncher.domain.search.SettingsShortcuts
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.mapLatest
 
 /** The home pages' contents, the dock and everything drawn over the wallpaper. */
 data class HomeUiState(
@@ -96,6 +112,8 @@ data class HomeUiState(
     val settings: LauncherSettings = LauncherSettings(),
     /** To-dos and today's plan for the launcher's own widgets. */
     val widgetData: LauncherWidgetData = LauncherWidgetData(),
+    /** For the line under the clock (full version: CLOCK_STYLES). */
+    val battery: BatteryGlance? = null,
 ) {
     /** Apps of a folder, in the folder's order. */
     fun appsOf(folder: CustomFolder): List<AppInfo> {
@@ -108,6 +126,17 @@ data class HomeUiState(
     /** The assistant's name as the user set it (full version), for the command bar. */
     val assistantName: String
         get() = if (BuildConfig.CHAT_CUSTOMIZATION) settings.assistant.displayName else AssistantProfile.DEFAULT_NAME
+}
+
+/** Instant answers for what is typed in the command bar (full version: INSTANT_SEARCH). */
+data class InstantResults(
+    val answer: QuickAnswer? = null,
+    val settings: List<SettingsShortcut> = emptyList(),
+    val contacts: List<ContactMatch> = emptyList(),
+    val todos: List<TodoItem> = emptyList(),
+    val files: List<FileEntry> = emptyList(),
+) {
+    val isEmpty: Boolean get() = answer == null && settings.isEmpty() && contacts.isEmpty() && todos.isEmpty() && files.isEmpty()
 }
 
 /** The home "glance" card: open to-dos and the next planner block. */
@@ -125,7 +154,7 @@ sealed interface HomeEvent {
     data class FolderCreated(val folderId: Long) : HomeEvent
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -142,6 +171,10 @@ class HomeViewModel @Inject constructor(
     upcomingEventsProvider: UpcomingEventsProvider,
     private val gestures: SystemGestureController,
     val widgetHost: LauncherWidgetHost,
+    private val nowPlayingRepository: NowPlayingRepository,
+    private val contacts: ContactRepository,
+    private val files: FileRepository,
+    battery: BatteryMonitor,
 ) : LauncherAppsViewModel(appRepository, appLauncher, dockRepository, homeLayout, folderRepository, shortcutRepository) {
 
     /** Emits on every minute boundary so the clock flips exactly on time. */
@@ -167,6 +200,7 @@ class HomeViewModel @Inject constructor(
         val glance: Glance,
         val upcoming: UpcomingEvent?,
         val widgetData: LauncherWidgetData,
+        val battery: BatteryGlance?,
     )
 
     private val layout: Flow<Layout> = combine(homeLayout.items, homeLayout.pageCount, folderRepository.folders, dockRepository.entries) { items, pages, folders, dock ->
@@ -185,8 +219,14 @@ class HomeViewModel @Inject constructor(
         ) to LauncherWidgetData(list, blocks)
     }
 
-    private val ambient: Flow<Ambient> = combine(notifications.smartPills, notifications.badgeCounts, glance, upcomingEventsProvider.nextEvent) { pills, badges, g, up ->
-        Ambient(pills, badges, g.first, up, g.second)
+    /** Battery for the clock line, only read while that line shows it. */
+    private val batteryLine: Flow<BatteryGlance?> = settingsRepository.launcherSettings
+        .map { BuildConfig.CLOCK_STYLES && it.clockShowsBattery }
+        .distinctUntilChanged()
+        .flatMapLatest { on -> if (on) battery.battery else flowOf(null) }
+
+    private val ambient: Flow<Ambient> = combine(notifications.smartPills, notifications.badgeCounts, glance, upcomingEventsProvider.nextEvent, batteryLine) { pills, badges, g, up, bat ->
+        Ambient(pills, badges, g.first, up, g.second, bat)
     }
 
     val uiState: StateFlow<HomeUiState> = combine(
@@ -212,8 +252,85 @@ class HomeViewModel @Inject constructor(
             glance = ctx.glance,
             settings = settings,
             widgetData = ctx.widgetData,
+            battery = ctx.battery,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+
+    /** What's playing (full version: MEDIA_CONTROLS), read only while the setting is on. */
+    val nowPlaying: StateFlow<NowPlaying?> = settingsRepository.launcherSettings
+        .map { BuildConfig.MEDIA_CONTROLS && it.mediaControls }
+        .distinctUntilChanged()
+        .flatMapLatest { on -> if (on) nowPlayingRepository.nowPlaying else flowOf(null) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun mediaPlayPause(item: NowPlaying) = nowPlayingRepository.playPause(item)
+    fun mediaNext(item: NowPlaying) = nowPlayingRepository.next(item)
+    fun mediaPrevious(item: NowPlaying) = nowPlayingRepository.previous(item)
+    fun openMediaApp(item: NowPlaying) {
+        if (!nowPlayingRepository.open(item)) message("Couldn't open ${item.appLabel}")
+    }
+
+    /**
+     * Contacts, system settings pages, to-dos, files, sums and unit conversions for what is typed
+     * in the command bar (full version: INSTANT_SEARCH). Read on the phone only; nothing is sent.
+     */
+    val instantResults: StateFlow<InstantResults> = combine(query, settingsRepository.launcherSettings.map { BuildConfig.INSTANT_SEARCH && it.instantSearch }.distinctUntilChanged()) { q, on -> q to on }
+        .debounce(INSTANT_DEBOUNCE_MILLIS)
+        .mapLatest { (q, on) -> if (!on || q.isBlank()) InstantResults() else instantFor(q.trim()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InstantResults())
+
+    private suspend fun instantFor(q: String): InstantResults {
+        val answer = QuickAnswers.answer(q)
+        // A sum or a conversion is the whole answer: no need to look for contacts named "5 km".
+        if (answer != null) return InstantResults(answer = answer)
+        if (q.length < 2) return InstantResults()
+        val todoMatches = runCatching { todos.all() }.getOrDefault(emptyList())
+            .filter { !it.completed && it.title.contains(q, ignoreCase = true) }
+            .take(MAX_INSTANT_TODOS)
+        return InstantResults(
+            settings = SettingsShortcuts.search(q),
+            contacts = if (contacts.hasPermission() && q.length >= 2) runCatching { contacts.search(q, MAX_INSTANT_CONTACTS) }.getOrDefault(emptyList()) else emptyList(),
+            todos = todoMatches,
+            files = if (q.length >= 3) runCatching { files.searchByName(q, MAX_INSTANT_FILES) }.getOrDefault(emptyList()) else emptyList(),
+        )
+    }
+
+    /** Opens a system settings page found by instant search. */
+    fun openSettingsPage(shortcut: SettingsShortcut) {
+        clearQuery()
+        val opened = runCatching { context.startActivity(Intent(shortcut.action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess ||
+            runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
+        if (!opened) message("Couldn't open ${shortcut.title}")
+    }
+
+    /** Opens the dialler with the contact's number; nothing is called until the user taps call. */
+    fun callContact(contact: ContactMatch) {
+        clearQuery()
+        val uri = android.net.Uri.fromParts("tel", contact.phoneNumber, null)
+        if (runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isFailure) message("Couldn't open the dialler")
+    }
+
+    fun messageContact(contact: ContactMatch) {
+        clearQuery()
+        val uri = android.net.Uri.fromParts("smsto", contact.phoneNumber, null)
+        if (runCatching { context.startActivity(Intent(Intent.ACTION_SENDTO, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isFailure) message("Couldn't open messages")
+    }
+
+    fun openFile(file: FileEntry) {
+        clearQuery()
+        val view = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(file.uri.toUri(), file.mimeType ?: "*/*")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val opened = runCatching { context.startActivity(Intent.createChooser(view, file.name).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
+        if (opened) viewModelScope.launch { runCatching { files.recordAccess(file, "opened") } } else message("No app can open ${file.name}")
+    }
+
+    fun copyAnswer(answer: QuickAnswer) {
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java) ?: return
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(answer.question, answer.copyText))
+        // Android 13+ shows its own "copied" confirmation.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) message("Copied ${answer.copyText}")
+    }
 
     private val _events = Channel<HomeEvent>(Channel.BUFFERED)
     val events: Flow<HomeEvent> = _events.receiveAsFlow()
@@ -548,6 +665,10 @@ class HomeViewModel @Inject constructor(
     }
 
     private companion object {
+        const val INSTANT_DEBOUNCE_MILLIS = 120L
+        const val MAX_INSTANT_CONTACTS = 3
+        const val MAX_INSTANT_TODOS = 2
+        const val MAX_INSTANT_FILES = 3
         const val MAX_RESULTS = 5
 
         fun searchNames(app: AppInfo): List<String> =

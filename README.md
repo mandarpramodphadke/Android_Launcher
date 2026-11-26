@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.7: icon packs, clock styles, blur, music and instant search](#whats-new-in-17-icon-packs-clock-styles-blur-music-and-instant-search)
 1. [What's new in 1.6.1: better answers to general questions](#whats-new-in-161-better-answers-to-general-questions)
 1. [What's new in 1.6: sliding panels, chat customization, more calendars](#whats-new-in-16-sliding-panels-chat-customization-more-calendars)
 1. [What's new in 1.5: System info](#whats-new-in-15-system-info)
@@ -31,6 +32,39 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.7: icon packs, clock styles, blur, music and instant search
+
+Full version first (flags `ICON_CUSTOMIZATION`, `CLOCK_STYLES`, `BLUR_EFFECTS`, `MEDIA_CONTROLS`,
+`INSTANT_SEARCH`). Everything is in Settings: *Appearance* for the looks, *Home screen & gestures*
+for music controls and instant search.
+
+- **Icon packs.** Any icon pack in the usual format (ADW / Nova / Lawnchair `appfilter.xml`) from
+  the Play Store. Apps the pack doesn't cover are drawn on the pack's own backs when it has them,
+  so the grid still looks like one set. The pack is read on the phone.
+- **Icon shape and size.** Phone default, circle, squircle, rounded square or teardrop for adaptive
+  icons; 80–120 % size; and the option to hide app names on the home pages.
+- **Clock styles.** Classic, stacked (hours above minutes), analog (a dial beside the date), words
+  ("Four thirty-seven") and slim (one thin line), in the default, condensed, serif, monospace or
+  bold font, with the battery level (and "charging") beside the date.
+- **Blur.** On Android 12+, the home screen blurs as the app drawer opens and while a folder, app
+  menu or the home menu is open. The wallpaper also moves a little as you swipe between pages
+  (wallpapers wider than the screen).
+- **Music controls.** What's playing (Spotify, YouTube Music, podcasts, …) shows as a chip under the
+  clock: album art, title, artist, previous / play-pause / next; tap it to open the player. In
+  minimal mode it is one line of text. It reads the phone's media sessions, which Android only
+  shows to an app with notification access (the digest itself can stay off).
+- **Instant search.** While you type in the command bar, a card above the app results answers
+  without the model:
+  - sums: `15% of 2400`, `(3+4)*2`, `200 + 10%`, `2^10`, `sqrt 81` (tap to copy)
+  - conversions: `5 km in miles`, `72f to c`, `2 kg to lb`, `1.5 l in cups`, `500 mb to gb`,
+    `100 mph in km/h`, `90 minutes in hours`
+  - contacts (call or message), phone settings pages ("wifi", "bluetooth", "dark mode", "battery"),
+    open to-dos and files by name
+
+  Enter still asks the assistant. Everything is looked up on the phone.
 
 ---
 
