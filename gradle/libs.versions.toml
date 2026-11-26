@@ -1,6 +1,6 @@
 [versions]
 # --- Build tooling -------------------------------------------------------------
-agp = "9.5.2"
+agp = "9.5.3"
 # AGP 9 ships built-in Kotlin support. Declaring the Kotlin Gradle plugin version here pins the
 # Kotlin compiler used by AGP and keeps the Compose / Serialization compiler plugins in lockstep.
 kotlin = "2.4.21"
