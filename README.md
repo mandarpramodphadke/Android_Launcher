@@ -792,6 +792,10 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 
 1.8.0 (full version):
 
+- `assembleFullRelease` builds a **24.1 MB APK**, version 1.8.0 (10), signed with the same key,
+  16 KB aligned, with the same permissions as 1.7.0. Zero Kotlin compiler warnings; lint is clean
+  on both versions except for `OldTargetApi`; the Play policy check passes. **217 JVM unit tests
+  pass on both versions** (1 JNI host test skipped unless configured).
 - **Memory replayed on the real Qwen3-1.7B** (three seeds, the exact prompts the app sends, four
   saved facts): "when is my wife's birthday?" and "where did I park?" answered from memory 6 of 6;
   an alarm, a to-do and "I had a long day" were unaffected; "please don't forget it" made the model
