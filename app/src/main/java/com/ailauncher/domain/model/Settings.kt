@@ -62,6 +62,12 @@ enum class ClockFace {
 @Serializable
 enum class ClockFont { DEFAULT, CONDENSED, SERIF, MONO, BOLD }
 
+/** DOCK_AND_GRID: the dock's background. */
+enum class DockStyle { PILL, GLASS, NONE }
+
+/** DOCK_AND_GRID: the size of app and folder names, as a factor of the default. */
+enum class LabelSize(val scale: Float) { SMALL(0.88f), MEDIUM(1f), LARGE(1.15f) }
+
 /**
  * Assistant features that depend on the build (full first, Google Play later). Provided from
  * BuildConfig by the app module, so the domain layer stays free of Android.
@@ -185,11 +191,21 @@ data class LauncherSettings(
     val swipeDownApp: String? = null,
     val doubleTapApp: String? = null,
     val twoFingerApp: String? = null,
+    /** DOCK_AND_GRID: the dock's look, and the AI command bar inside it. */
+    val dockStyle: DockStyle = DockStyle.PILL,
+    val commandBarInDock: Boolean = false,
+    /** DOCK_AND_GRID: rows on the home pages, [AUTO_ROWS] to fit as many as the screen holds. */
+    val homeRows: Int = AUTO_ROWS,
+    val labelSize: LabelSize = LabelSize.MEDIUM,
+    /** DOCK_AND_GRID: the typeface of app names (the clock's choices). */
+    val labelFont: ClockFont = ClockFont.DEFAULT,
 ) {
     companion object {
         const val DEFAULT_CHAT_DIM = 0.55f
         const val MIN_ICON_SIZE = 80
         const val MAX_ICON_SIZE = 120
+        const val AUTO_ROWS = 0
+        val HOME_ROW_CHOICES = 4..7
     }
 }
 

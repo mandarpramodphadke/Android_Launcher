@@ -1,6 +1,6 @@
 # AI Launcher privacy policy
 
-*Effective 25 November 2026*
+*Effective 26 November 2026*
 
 AI Launcher is an Android home-screen app with a built-in AI assistant called Aura. The assistant's
 AI model runs **on your phone**. This policy explains what the app uses, why, and the few cases
@@ -42,9 +42,9 @@ use the feature that needs them, and you can withdraw them at any time in Androi
   only look inside folders you pick with Android's folder picker; you can remove them in Settings.
   In the version installed outside Google Play, you can instead allow access to photos, videos,
   audio and, optionally, all files.
-- **Accessibility service** (optional, "AI Launcher gestures"). Used only to turn the screen off
-  when you double-tap the home screen and to open the notification shade when you swipe down. It
-  does not read, collect or share anything shown on your screen.
+- **Accessibility service** (optional, "AI Launcher gestures"). Used only for the home-screen
+  gestures you choose: to turn the screen off, to open the notification shade and to open Quick
+  Settings. It does not read, collect or share anything shown on your screen.
 - **Device admin** (optional). Only to turn the screen off, as an alternative to the accessibility
   service.
 - **Phone calls.** When you confirm a call request, to place the call directly; without this
@@ -53,12 +53,17 @@ use the feature that needs them, and you can withdraw them at any time in Androi
   are handled by Android; the app never sees them.
 - **Voice input.** Speech is turned into text by your phone's speech-recognition app (the app
   asks it to work offline where possible); that app's own privacy policy applies.
+- **Reading replies aloud** (optional). The assistant's replies are spoken by your phone's
+  text-to-speech engine, using only a voice that works offline, so the text of a reply is not
+  sent anywhere. If only online voices are installed, nothing is read aloud.
 
 ## Data stored on your phone
 
 Assistant chats, to-dos, planner blocks, folders, your home-screen layout, settings (including the
-assistant's name and the instructions you give it), app categories, subscribed calendars, the chat
-background photo and the notification digest are kept in the app's private storage, protected by Android. You can
+assistant's name and the instructions you give it), what you ask the assistant to remember, app
+categories, subscribed calendars, the chat background photo and the notification digest are kept
+in the app's private storage, protected by Android. You can see and delete what the assistant
+remembers in Settings. You can
 clear the chat history in Settings, and uninstalling the app deletes all of it. If you use
 Android's own backup, it may save your launcher settings to your Google account; chats, to-dos,
 notifications and AI models are excluded. A phone-to-phone transfer that you start copies

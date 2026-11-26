@@ -15,11 +15,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.ailauncher.BuildConfig
 import com.ailauncher.domain.model.AppCategory
+import com.ailauncher.domain.model.AppTheme
 import com.ailauncher.domain.model.ClockFace
 import com.ailauncher.domain.model.ClockFont
-import com.ailauncher.domain.model.IconShape
-import com.ailauncher.domain.model.AppTheme
+import com.ailauncher.domain.model.DockStyle
 import com.ailauncher.domain.model.HomeTextColor
+import com.ailauncher.domain.model.IconShape
 import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ThemeMode
@@ -49,6 +50,14 @@ data class LauncherStyle(
     /** Blur behind the drawer, folders and menus. */
     val blur: Boolean = false,
     val wallpaperParallax: Boolean = false,
+    /** DOCK_AND_GRID: the dock's look and the command bar inside it. */
+    val dockStyle: DockStyle = DockStyle.PILL,
+    val commandBarInDock: Boolean = false,
+    /** Home rows, [LauncherSettings.AUTO_ROWS] to fit the screen. */
+    val homeRows: Int = LauncherSettings.AUTO_ROWS,
+    /** Multiplies the size of app and folder names (1 = default). */
+    val labelScale: Float = 1f,
+    val labelFont: ClockFont = ClockFont.DEFAULT,
 ) {
     fun categoryColor(category: AppCategory?): Color? = category?.let { categoryColors?.getOrNull(it.ordinal) }
 }
@@ -94,13 +103,14 @@ fun AiLauncherTheme(settings: LauncherSettings, content: @Composable () -> Unit)
 }
 
 /**
- * The 1.7 look settings, each only where its feature is on in this build (full version first);
+ * The 1.7 and 1.8 look settings, each only where its feature is on in this build (full version first);
  * elsewhere the launcher looks as before, even if a backup from the full version set them.
  */
 fun LauncherStyle.withLooks(settings: LauncherSettings): LauncherStyle {
     val icons = BuildConfig.ICON_CUSTOMIZATION
     val clock = BuildConfig.CLOCK_STYLES
     val effects = BuildConfig.BLUR_EFFECTS
+    val dock = BuildConfig.DOCK_AND_GRID
     return copy(
         iconPack = if (icons) settings.iconPackPackage else null,
         iconShape = if (icons) settings.iconShape else IconShape.SYSTEM,
@@ -111,5 +121,10 @@ fun LauncherStyle.withLooks(settings: LauncherSettings): LauncherStyle {
         clockBattery = clock && settings.clockShowsBattery,
         blur = effects && settings.blurEffects && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
         wallpaperParallax = effects && settings.wallpaperParallax,
+        dockStyle = if (dock) settings.dockStyle else DockStyle.PILL,
+        commandBarInDock = dock && settings.commandBarInDock,
+        homeRows = if (dock) settings.homeRows else LauncherSettings.AUTO_ROWS,
+        labelScale = if (dock) settings.labelSize.scale else 1f,
+        labelFont = if (dock) settings.labelFont else ClockFont.DEFAULT,
     )
 }

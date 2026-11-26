@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full version only (CUSTOM_GESTURES): the gestures can also open Quick Settings. -->
+<resources>
+    <string name="accessibility_service_description">Lets AI Launcher run the home-screen gestures you choose: lock the screen, open the notification shade or open Quick Settings. AI Launcher does not read, collect or share any screen content.</string>
+</resources>

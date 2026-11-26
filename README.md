@@ -14,6 +14,7 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 
 ## Contents
 
+1. [What's new in 1.8: memory, spoken replies, gestures, dock and grid](#whats-new-in-18-memory-spoken-replies-gestures-dock-and-grid)
 1. [What's new in 1.7: icon packs, clock styles, blur, music and instant search](#whats-new-in-17-icon-packs-clock-styles-blur-music-and-instant-search)
 1. [What's new in 1.6.1: better answers to general questions](#whats-new-in-161-better-answers-to-general-questions)
 1. [What's new in 1.6: sliding panels, chat customization, more calendars](#whats-new-in-16-sliding-panels-chat-customization-more-calendars)
@@ -32,6 +33,32 @@ WorkManager, Navigation Compose, Coil, Credential Manager (Google Sign-In) and o
 9. [Verification performed](#verification-performed)
 10. [Known limitations](#known-limitations)
 11. [Deliverables map](#deliverables-map)
+
+---
+
+## What's new in 1.8: memory, spoken replies, gestures, dock and grid
+
+Full version first (flags `ASSISTANT_MEMORY`, `SPOKEN_REPLIES`, `CUSTOM_GESTURES`, `DOCK_AND_GRID`).
+
+- **The assistant remembers.** "Remember that my car is on level 3", "my wife's birthday is
+  4 March, keep that in mind", "FYI I'm vegetarian, make a note of it". Saved at once and shown on
+  a card; "what do you remember?" lists them, "forget my car" asks first, then deletes. The model
+  can also save with the new `manage_memory` tool when you ask in other words. Memories go into
+  the assistant's system prompt (only when they change, so the prompt cache keeps working) and
+  are stored on the phone (database version 5), in the encrypted backup file and never in cloud
+  backups. Settings ▸ AI assistant ▸ *Memory* switches it off; *Saved memories* lists them to
+  delete one or all.
+- **Replies read aloud.** *Read replies aloud*: after you use your voice (the default), always,
+  or never. The chat now has a microphone too, so you can talk back and forth, and a button to
+  stop reading. Your phone's text-to-speech reads with an offline voice only; Markdown is turned
+  into plain sentences, and code is not read out.
+- **Your gestures.** Settings ▸ Home screen & gestures: choose what *swipe down*, *double-tap* and
+  a new *two-finger swipe down* do: notifications, Quick Settings, lock the screen, the
+  assistant, search apps, the app drawer, an app you pick, the flashlight, System info, the
+  planner or nothing. Until you choose, they keep doing what they did. Swipe up stays the drawer.
+- **Dock and grid.** Settings ▸ Appearance: a pill (as before), glass or no dock; the command bar
+  inside the dock; 4 to 7 home rows or automatic (rows with apps in them are kept, so fewer rows
+  never hide anything); small, medium or large app names in any of the clock fonts.
 
 ---
 
@@ -644,6 +671,7 @@ use, and grouped `<tool_response>` turns. It is verified against fixtures render
 | `summarize_notifications` | `appName?` (read-only) | the opt-in on-device digest (last 24 h) |
 | `contact_action` | `action` (call, sms, whatsapp), `contactName`, `message?` | Contacts provider → `ACTION_CALL` (or `ACTION_DIAL` without `CALL_PHONE`), `smsto:`, WhatsApp |
 | `get_device_info` | none (read-only; `BETTER_ANSWERS` builds only) | the System info page's reader (`Build`, `/proc`, memory, storage, battery, GPU) plus a verdict per model from `ModelAdvice`, fed back to the model |
+| `manage_memory` | `action` (save, list, forget), `text?` (`ASSISTANT_MEMORY` builds, 4096-token context) | Room `MemoryEntity`; list is read-only and fed back, save runs at once, forget asks first |
 
 **Token budget.** The full tool block is ~1,730 tokens, so it is used when the context is ≥ 3072
 tokens. *Auto* context (the new default) is 4096 on phones with 6 GB+ RAM and 2048 otherwise; at
@@ -762,6 +790,22 @@ build/host/llm_host_harness --model /path/to/model.gguf app/build/prompt-fixture
 
 ## Verification performed
 
+1.8.0 (full version):
+
+- **Memory replayed on the real Qwen3-1.7B** (three seeds, the exact prompts the app sends, four
+  saved facts): "when is my wife's birthday?" and "where did I park?" answered from memory 6 of 6;
+  an alarm, a to-do and "I had a long day" were unaffected; "please don't forget it" made the model
+  save 2 of 2. Two findings were fixed in code rather than in the prompt: the model often replied
+  "I'll make a note" without saving, so those phrasings are now quick commands; and nesting the
+  memories under extra rules made recall worse ("I can't check where you parked"), so they stay a
+  flat list. Not fixed: it rarely *applies* a saved preference (a vegetarian diet to a meal plan);
+  two other wordings did no better.
+- Unit tests for the memory rules, quick commands, router and tool list, the 4 → 5 migration with
+  the repository through Room, the agent with a scripted model (saving runs at once, forgetting
+  asks, nothing is saved or offered when memory is off), what is read aloud and when, the
+  two-finger swipe with real multi-touch input, the gesture defaults, home rows, and two dock
+  screenshots.
+
 1.6.1 (full version):
 
 - `assembleFullRelease` builds a **23.9 MB APK**, version 1.6.1 (8), signed with the same key,
@@ -862,6 +906,9 @@ testing track is the easiest way to do this.
 
 ## Known limitations
 
+- **Memory and the 1.7B model.** Facts are recalled when asked about, but a saved preference (a
+  diet, a name) is often not applied unprompted, for example to a meal plan. Saying it again in
+  the message works. Untested with the larger models.
 - **Wi-Fi and Bluetooth** cannot be switched programmatically on Android 10+. The tool opens the
   system panel or settings page instead. The flashlight and DND (after policy access) toggle
   directly.

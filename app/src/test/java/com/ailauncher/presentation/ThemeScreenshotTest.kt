@@ -1,15 +1,5 @@
 package com.ailauncher.presentation
 
-import com.ailauncher.data.media.NowPlaying
-import com.ailauncher.domain.model.BatteryGlance
-import com.ailauncher.domain.model.ClockFace
-import com.ailauncher.domain.model.ClockFont
-import com.ailauncher.domain.model.ContactMatch
-import com.ailauncher.domain.model.FileEntry
-import com.ailauncher.domain.model.IconShape
-import com.ailauncher.domain.search.QuickAnswers
-import com.ailauncher.domain.search.SettingsShortcuts
-import com.ailauncher.presentation.home.InstantResults
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -54,56 +44,63 @@ import coil3.annotation.ExperimentalCoilApi
 import coil3.asImage
 import coil3.compose.AsyncImagePreviewHandler
 import coil3.compose.LocalAsyncImagePreviewHandler
+import com.ailauncher.data.media.NowPlaying
 import com.ailauncher.data.packages.AppIconData
 import com.ailauncher.domain.ai.ToolNames
 import com.ailauncher.domain.model.AppCategory
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.AppTheme
+import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.AssistantTone
+import com.ailauncher.domain.model.BatteryGlance
+import com.ailauncher.domain.model.CalendarFeed
 import com.ailauncher.domain.model.CategorizationProgress
 import com.ailauncher.domain.model.CategorySource
+import com.ailauncher.domain.model.ChatBackground
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.ChatRole
+import com.ailauncher.domain.model.ClockFace
+import com.ailauncher.domain.model.ClockFont
+import com.ailauncher.domain.model.ContactMatch
 import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.model.DeviceCalendar
 import com.ailauncher.domain.model.DockEntry
+import com.ailauncher.domain.model.DockStyle
 import com.ailauncher.domain.model.DrawerLayout
 import com.ailauncher.domain.model.DrawerTab
 import com.ailauncher.domain.model.EngineState
+import com.ailauncher.domain.model.FileEntry
 import com.ailauncher.domain.model.FolderAccent
-import com.ailauncher.domain.model.AssistantProfile
-import com.ailauncher.domain.model.AssistantTone
-import com.ailauncher.domain.model.CalendarFeed
-import com.ailauncher.domain.model.ChatBackground
-import com.ailauncher.domain.model.DeviceCalendar
+import com.ailauncher.domain.model.FolderRule
+import com.ailauncher.domain.model.GridPosition
+import com.ailauncher.domain.model.HomeItem
+import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.IconShape
+import com.ailauncher.domain.model.IconStyle
+import com.ailauncher.domain.model.InferenceMode
+import com.ailauncher.domain.model.LabelSize
+import com.ailauncher.domain.model.LauncherSettings
+import com.ailauncher.domain.model.LauncherWidgetConfig
+import com.ailauncher.domain.model.LauncherWidgetKind
+import com.ailauncher.domain.model.MessageStatus
+import com.ailauncher.domain.model.ModelRuntimeInfo
+import com.ailauncher.domain.model.PlannerBlock
 import com.ailauncher.domain.model.ResponseLength
+import com.ailauncher.domain.model.SmartExtraction
+import com.ailauncher.domain.model.SmartPill
+import com.ailauncher.domain.model.ThemeMode
+import com.ailauncher.domain.model.TodoItem
+import com.ailauncher.domain.model.TodoPriority
+import com.ailauncher.domain.model.ToolInvocation
+import com.ailauncher.domain.model.ToolStatus
+import com.ailauncher.domain.model.UpcomingEvent
+import com.ailauncher.domain.search.QuickAnswers
+import com.ailauncher.domain.search.SettingsShortcuts
+import com.ailauncher.domain.system.SystemInfoSections
 import com.ailauncher.presentation.calendars.CalendarsContent
 import com.ailauncher.presentation.calendars.CalendarsUiState
 import com.ailauncher.presentation.chat.ChatBackdrop
 import com.ailauncher.presentation.chat.ChatCustomizeContent
-import com.ailauncher.domain.model.FolderRule
-import com.ailauncher.domain.model.LauncherWidgetConfig
-import com.ailauncher.domain.model.LauncherWidgetKind
-import com.ailauncher.domain.model.TodoItem
-import com.ailauncher.domain.model.TodoPriority
-import com.ailauncher.presentation.folders.FolderEditorContent
-import com.ailauncher.presentation.system.SystemInfoContent
-import com.ailauncher.presentation.system.SystemInfoUiState
-import com.ailauncher.domain.system.SystemInfoSections
-import com.ailauncher.presentation.home.LauncherWidgetData
-import com.ailauncher.domain.model.GridPosition
-import com.ailauncher.domain.model.HomeItem
-import com.ailauncher.domain.model.HomeItemContent
-import com.ailauncher.domain.model.IconStyle
-import com.ailauncher.domain.model.InferenceMode
-import com.ailauncher.domain.model.LauncherSettings
-import com.ailauncher.domain.model.MessageStatus
-import com.ailauncher.domain.model.ModelRuntimeInfo
-import com.ailauncher.domain.model.PlannerBlock
-import com.ailauncher.domain.model.SmartExtraction
-import com.ailauncher.domain.model.SmartPill
-import com.ailauncher.domain.model.ThemeMode
-import com.ailauncher.domain.model.ToolInvocation
-import com.ailauncher.domain.model.ToolStatus
-import com.ailauncher.domain.model.UpcomingEvent
 import com.ailauncher.presentation.chat.ChatInput
 import com.ailauncher.presentation.chat.ChatMessageList
 import com.ailauncher.presentation.chat.ChatMessageUi
@@ -115,11 +112,16 @@ import com.ailauncher.presentation.drawer.CategorySection
 import com.ailauncher.presentation.drawer.DrawerCallbacks
 import com.ailauncher.presentation.drawer.DrawerContent
 import com.ailauncher.presentation.drawer.DrawerUiState
+import com.ailauncher.presentation.folders.FolderEditorContent
 import com.ailauncher.presentation.home.Glance
 import com.ailauncher.presentation.home.HomeCallbacks
 import com.ailauncher.presentation.home.HomeContent
 import com.ailauncher.presentation.home.HomeUiState
+import com.ailauncher.presentation.home.InstantResults
+import com.ailauncher.presentation.home.LauncherWidgetData
 import com.ailauncher.presentation.settings.ThemePicker
+import com.ailauncher.presentation.system.SystemInfoContent
+import com.ailauncher.presentation.system.SystemInfoUiState
 import com.ailauncher.presentation.theme.AiLauncherTheme
 import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.theme.WallpaperTint
@@ -199,6 +201,9 @@ class ThemeScreenshotTest {
             add(Shot("home-clock-analog-classic-light") { Home(settings(AppTheme.CLASSIC).copy(clockFace = ClockFace.ANALOG), LightWallpaper, WallpaperTint.Dark, battery = Battery) })
             add(Shot("home-clock-words-neon") { Home(settings(AppTheme.NEON).copy(clockFace = ClockFace.WORDS, clockFont = ClockFont.SERIF), DarkWallpaper, WallpaperTint.Light, battery = Battery) })
             add(Shot("home-clock-slim-bold-colourful") { Home(settings(AppTheme.COLORFUL).copy(clockFace = ClockFace.SLIM, clockFont = ClockFont.BOLD), DarkWallpaper, WallpaperTint.Light, battery = Battery) })
+            // 1.8 (DOCK_AND_GRID): glass dock with the command bar inside, large serif names, 5 rows; no dock, small names.
+            add(Shot("home-dock-glass-bar-inside") { Home(settings(AppTheme.MATERIAL_YOU).copy(dockStyle = DockStyle.GLASS, commandBarInDock = true, labelSize = LabelSize.LARGE, labelFont = ClockFont.SERIF, homeRows = 5), DarkWallpaper, WallpaperTint.Light) })
+            add(Shot("home-dock-none-small-names-light") { Home(settings(AppTheme.CLASSIC).copy(dockStyle = DockStyle.NONE, labelSize = LabelSize.SMALL), LightWallpaper, WallpaperTint.Dark) })
             add(Shot("home-icons-no-labels-large") { Home(settings(AppTheme.MATERIAL_YOU).copy(showHomeLabels = false, iconSizePercent = 120, iconShape = IconShape.CIRCLE), DarkWallpaper, WallpaperTint.Light) })
             add(Shot("home-music-material-you") { Home(settings(AppTheme.MATERIAL_YOU), DarkWallpaper, WallpaperTint.Light, nowPlaying = Playing) })
             add(Shot("home-music-minimal") { Home(settings(AppTheme.MONOCHROME).copy(minimalMode = true), DarkWallpaper, WallpaperTint.Light, nowPlaying = Playing) })

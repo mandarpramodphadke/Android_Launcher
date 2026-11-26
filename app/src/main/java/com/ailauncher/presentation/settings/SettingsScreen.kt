@@ -288,6 +288,7 @@ fun SettingsScreen(
                     }
                 },
             )
+            dockAndGridSettings(state.settings, onUpdate = viewModel::updateSettings)
 
             // ---------------------------------------------------------------- Gestures
             item { SectionTitle("Home screen & gestures") }

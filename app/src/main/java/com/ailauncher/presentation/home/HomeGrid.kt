@@ -52,22 +52,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ailauncher.data.widgets.LauncherAppWidgetHostView
 import com.ailauncher.data.widgets.LauncherWidgetHost
+import com.ailauncher.domain.home.DropAction
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.LauncherWidgetConfig
 import com.ailauncher.domain.model.LauncherWidgetKind
-import com.ailauncher.domain.home.DropAction
 import com.ailauncher.presentation.components.AppGridTile
-import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.components.FolderTile
 import com.ailauncher.presentation.components.TileDragCallbacks
+import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.theme.WallpaperTint
 import kotlin.math.roundToInt
 
 /** Cell geometry of one home page, measured from the space the pager gives it. */
-data class HomeCellMetrics(val columns: Int, val rows: Int, val cellWidth: Dp, val cellHeight: Dp)
+data class HomeCellMetrics(val columns: Int, val rows: Int, val cellWidth: Dp, val cellHeight: Dp) {
+    companion object
+}
 
 /** Callbacks for items on a home page. */
 class HomeGridActions(
@@ -383,21 +386,47 @@ fun EmptyPageHint(tint: WallpaperTint, modifier: Modifier = Modifier) {
     }
 }
 
-/** Fits whole cells into the page: rows of at least [minCellHeight], the given column count. */
+/**
+ * Fits whole cells into the page: rows of at least [minCellHeight], the given column count.
+ * [rows] (DOCK_AND_GRID) fixes the row count instead, but never below [usedRows] (the rows the
+ * home items already use, so choosing fewer rows hides nothing) nor so many that cells get
+ * shorter than [FIXED_MIN_CELL_HEIGHT].
+ */
 @Composable
-fun rememberCellMetrics(maxWidth: Dp, maxHeight: Dp, columns: Int, minCellHeight: Dp = 92.dp): HomeCellMetrics =
-    remember(maxWidth, maxHeight, columns) {
-        val rows = (maxHeight / minCellHeight).toInt().coerceIn(MIN_ROWS, MAX_ROWS)
-        HomeCellMetrics(columns, rows, maxWidth / columns, maxHeight / rows)
+fun rememberCellMetrics(
+    maxWidth: Dp,
+    maxHeight: Dp,
+    columns: Int,
+    minCellHeight: Dp = 92.dp,
+    rows: Int = LauncherSettings.AUTO_ROWS,
+    usedRows: Int = 0,
+): HomeCellMetrics =
+    remember(maxWidth, maxHeight, columns, rows, usedRows) {
+        HomeCellMetrics.fit(maxWidth, maxHeight, columns, minCellHeight, rows, usedRows)
     }
 
 @Composable
-fun MeasuredPage(columns: Int, content: @Composable (HomeCellMetrics) -> Unit) {
+fun MeasuredPage(columns: Int, rows: Int = LauncherSettings.AUTO_ROWS, usedRows: Int = 0, content: @Composable (HomeCellMetrics) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        content(rememberCellMetrics(maxWidth, maxHeight, columns))
+        content(rememberCellMetrics(maxWidth, maxHeight, columns, rows = rows, usedRows = usedRows))
     }
+}
+
+/** The row count for a page (pure, tested): see [rememberCellMetrics]. */
+fun HomeCellMetrics.Companion.fit(maxWidth: Dp, maxHeight: Dp, columns: Int, minCellHeight: Dp, rows: Int, usedRows: Int): HomeCellMetrics {
+    val auto = (maxHeight / minCellHeight).toInt().coerceIn(MIN_ROWS, MAX_ROWS)
+    val chosen = if (rows in LauncherSettings.HOME_ROW_CHOICES) {
+        rows.coerceAtMost((maxHeight / FIXED_MIN_CELL_HEIGHT).toInt().coerceAtLeast(MIN_ROWS))
+    } else {
+        auto
+    }
+    val count = maxOf(chosen, usedRows.coerceAtMost(MAX_ROWS))
+    return HomeCellMetrics(columns, count, maxWidth / columns, maxHeight / count)
 }
 
 const val HEADER_ROWS = 2
 private const val MIN_ROWS = 4
 private const val MAX_ROWS = 7
+
+/** A fixed row count never makes cells shorter than an icon and its name. */
+private val FIXED_MIN_CELL_HEIGHT = 76.dp

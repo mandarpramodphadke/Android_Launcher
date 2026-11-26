@@ -27,16 +27,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,7 +47,9 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.ailauncher.data.packages.AppIconData
 import com.ailauncher.domain.model.AppInfo
+import com.ailauncher.domain.model.ClockFont
 import com.ailauncher.domain.model.IconStyle
+import com.ailauncher.presentation.home.clockFontFamily
 import com.ailauncher.presentation.theme.LocalLauncherStyle
 
 /** Where an icon is on screen, captured without recomposition (read on tap for the launch animation). */
@@ -156,9 +159,11 @@ fun AppGridTile(
 
 @Composable
 fun TileLabel(text: String, color: Color, shadow: Shadow?) {
+    val style = LocalLauncherStyle.current
+    val base = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp * style.labelScale, lineHeight = 16.sp * style.labelScale, shadow = shadow)
     Text(
         text = text,
-        style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, lineHeight = 16.sp, shadow = shadow),
+        style = base.withLabelFont(style.labelFont),
         color = color,
         maxLines = 1,
         softWrap = false,
@@ -219,4 +224,11 @@ fun AppListRow(
             }
         }
     }
+}
+
+/** DOCK_AND_GRID: the clock's typefaces for app names; "Bold" is semi-bold at this size. */
+private fun TextStyle.withLabelFont(font: ClockFont): TextStyle {
+    val family = clockFontFamily(font)
+    val withFamily = if (family != null) copy(fontFamily = family) else this
+    return if (font == ClockFont.BOLD) withFamily.copy(fontWeight = FontWeight.SemiBold) else withFamily
 }

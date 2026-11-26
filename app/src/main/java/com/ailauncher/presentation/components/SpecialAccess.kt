@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.ailauncher.BuildConfig
 import com.ailauncher.data.notifications.AiNotificationListener
 
 /** Runtime permissions and special-access screens used by the v2 tools (all data stays on-device). */
@@ -83,14 +84,20 @@ fun NotificationDigestDisclosure(onAccept: () -> Unit, onDismiss: () -> Unit) {
  */
 @Composable
 fun AccessibilityDisclosure(onAgree: () -> Unit, onDismiss: () -> Unit) {
+    val purpose = if (BuildConfig.CUSTOM_GESTURES) {
+        "AI Launcher uses an Android accessibility service only for the home-screen gestures you choose: " +
+            "to turn the screen off, to open the notification shade and to open Quick Settings."
+    } else {
+        "AI Launcher uses an Android accessibility service only to turn the screen off when you double-tap " +
+            "the home screen, and to open the notification shade when you swipe down."
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.TouchApp, null) },
         title = { Text("Turn on AI Launcher gestures?") },
         text = {
             Text(
-                "AI Launcher uses an Android accessibility service only to turn the screen off when you double-tap " +
-                    "the home screen, and to open the notification shade when you swipe down.\n\n" +
+                purpose + "\n\n" +
                     "• It does not read, collect or share anything shown on your screen.\n" +
                     "• Nothing is sent off your phone.\n" +
                     "• You can turn it off at any time in Accessibility settings.\n\n" +

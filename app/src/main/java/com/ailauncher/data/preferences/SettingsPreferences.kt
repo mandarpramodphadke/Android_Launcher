@@ -71,6 +71,11 @@ internal object SettingsKeys {
     val SWIPE_DOWN_APP = stringPreferencesKey("swipe_down_app")
     val DOUBLE_TAP_APP = stringPreferencesKey("double_tap_app")
     val TWO_FINGER_APP = stringPreferencesKey("two_finger_app")
+    val DOCK_STYLE = stringPreferencesKey("dock_style")
+    val COMMAND_BAR_IN_DOCK = booleanPreferencesKey("command_bar_in_dock")
+    val HOME_ROWS = intPreferencesKey("home_rows")
+    val LABEL_SIZE = stringPreferencesKey("label_size")
+    val LABEL_FONT = stringPreferencesKey("label_font")
 
     val CONTEXT_SIZE = intPreferencesKey("model_context_size")
     val THREADS = intPreferencesKey("model_threads")
@@ -143,6 +148,11 @@ internal fun Preferences.toLauncherSettings(): LauncherSettings {
         swipeDownApp = this[SettingsKeys.SWIPE_DOWN_APP],
         doubleTapApp = this[SettingsKeys.DOUBLE_TAP_APP],
         twoFingerApp = this[SettingsKeys.TWO_FINGER_APP],
+        dockStyle = enumOrDefault(this[SettingsKeys.DOCK_STYLE], defaults.dockStyle),
+        commandBarInDock = this[SettingsKeys.COMMAND_BAR_IN_DOCK] ?: defaults.commandBarInDock,
+        homeRows = this[SettingsKeys.HOME_ROWS]?.takeIf { it in LauncherSettings.HOME_ROW_CHOICES } ?: LauncherSettings.AUTO_ROWS,
+        labelSize = enumOrDefault(this[SettingsKeys.LABEL_SIZE], defaults.labelSize),
+        labelFont = enumOrDefault(this[SettingsKeys.LABEL_FONT], defaults.labelFont),
     )
 }
 
@@ -203,6 +213,11 @@ internal fun MutablePreferences.writeLauncherSettings(s: LauncherSettings) {
     setOrRemove(SettingsKeys.SWIPE_DOWN_APP, s.swipeDownApp)
     setOrRemove(SettingsKeys.DOUBLE_TAP_APP, s.doubleTapApp)
     setOrRemove(SettingsKeys.TWO_FINGER_APP, s.twoFingerApp)
+    this[SettingsKeys.DOCK_STYLE] = s.dockStyle.name
+    this[SettingsKeys.COMMAND_BAR_IN_DOCK] = s.commandBarInDock
+    this[SettingsKeys.HOME_ROWS] = s.homeRows
+    this[SettingsKeys.LABEL_SIZE] = s.labelSize.name
+    this[SettingsKeys.LABEL_FONT] = s.labelFont.name
 }
 
 internal fun Preferences.toModelConfig(): ModelConfig {

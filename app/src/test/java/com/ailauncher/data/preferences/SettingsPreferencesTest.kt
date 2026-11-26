@@ -9,10 +9,12 @@ import com.ailauncher.domain.model.AssistantTone
 import com.ailauncher.domain.model.ChatBackground
 import com.ailauncher.domain.model.ClockFace
 import com.ailauncher.domain.model.ClockFont
+import com.ailauncher.domain.model.DockStyle
 import com.ailauncher.domain.model.GestureAction
 import com.ailauncher.domain.model.HomeTextColor
 import com.ailauncher.domain.model.IconShape
 import com.ailauncher.domain.model.IconStyle
+import com.ailauncher.domain.model.LabelSize
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ResponseLength
 import com.ailauncher.domain.model.SpokenReplies
@@ -55,6 +57,11 @@ class SettingsPreferencesTest {
             doubleTapAction = GestureAction.OPEN_APP,
             doubleTapApp = "com.spotify.music/.MainActivity",
             twoFingerSwipeAction = GestureAction.FLASHLIGHT,
+            dockStyle = DockStyle.GLASS,
+            commandBarInDock = true,
+            homeRows = 6,
+            labelSize = LabelSize.LARGE,
+            labelFont = ClockFont.MONO,
         )
         val prefs = mutablePreferencesOf().apply { writeLauncherSettings(settings) }
         assertThat(prefs.toLauncherSettings()).isEqualTo(settings)
@@ -63,6 +70,9 @@ class SettingsPreferencesTest {
         val read = prefs.toLauncherSettings()
         assertThat(read.swipeDownAction).isNull()
         assertThat(read.doubleTapApp).isNull()
+        // A row count outside the choices reads as automatic.
+        prefs.writeLauncherSettings(settings.copy(homeRows = 12))
+        assertThat(prefs.toLauncherSettings().homeRows).isEqualTo(LauncherSettings.AUTO_ROWS)
     }
 
     @Test

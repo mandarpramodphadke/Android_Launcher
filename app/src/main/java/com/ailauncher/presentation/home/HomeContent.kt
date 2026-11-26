@@ -54,9 +54,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -64,8 +61,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -81,11 +81,12 @@ import com.ailauncher.domain.clipboard.ClipInsight
 import com.ailauncher.domain.home.GridSpec
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.AppTheme
+import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.BatteryGlance
 import com.ailauncher.domain.model.ClockFace
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
-import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.DockStyle
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.SmartExtraction
 import com.ailauncher.domain.model.SmartPill
@@ -93,10 +94,10 @@ import com.ailauncher.domain.model.UpcomingEvent
 import com.ailauncher.presentation.components.AppGridTile
 import com.ailauncher.presentation.components.FolderTile
 import com.ailauncher.presentation.components.IconBounds
-import com.ailauncher.presentation.components.trackBounds
 import com.ailauncher.presentation.components.LauncherCommandBar
 import com.ailauncher.presentation.components.brushTint
 import com.ailauncher.presentation.components.sharedCommandBar
+import com.ailauncher.presentation.components.trackBounds
 import com.ailauncher.presentation.theme.LauncherColorSchemes
 import com.ailauncher.presentation.theme.LauncherStyle
 import com.ailauncher.presentation.theme.LocalLauncherStyle
@@ -224,6 +225,8 @@ internal fun HomeContent(
                     SearchResultsRow(state.searchResults, callbacks)
                 }
                 Spacer(Modifier.height(8.dp))
+                // DOCK_AND_GRID: the command bar can sit inside the dock.
+                val barInDock = style.commandBarInDock && state.settings.showAiCommandBar
                 DockBar(
                     state,
                     callbacks,
@@ -231,9 +234,15 @@ internal fun HomeContent(
                         .entrance(entrance.dock)
                         .onGloballyPositioned { drag.dock = it },
                     dropHere = drag.isDragging && drag.target == DropTarget.Dock,
+                    dockStyle = style.dockStyle,
+                    inner = if (barInDock) {
+                        { CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar), state.assistantName) }
+                    } else {
+                        null
+                    },
                 )
                 Spacer(Modifier.height(10.dp))
-                if (state.settings.showAiCommandBar) {
+                if (state.settings.showAiCommandBar && !barInDock) {
                     CommandBarArea(queryState, clip, callbacks, Modifier.entrance(entrance.bar), state.assistantName)
                 }
                 SwipeUpHint(tint, onClick = callbacks.onOpenDrawer)
@@ -279,7 +288,9 @@ private fun HomePage(
     nowPlaying: NowPlaying?,
     extras: HomeExtrasCallbacks,
 ) {
-    MeasuredPage(state.settings.homeGridColumns) { metrics ->
+    // DOCK_AND_GRID: a fixed row count, never fewer than the home items on any page use.
+    val usedRows = remember(state.homeItems) { state.homeItems.maxOfOrNull { it.position.y + it.position.spanY } ?: 0 }
+    MeasuredPage(state.settings.homeGridColumns, rows = style.homeRows, usedRows = usedRows) { metrics ->
         LaunchedEffect(metrics) {
             callbacks.onGridMeasured(GridSpec(metrics.columns, metrics.rows, HEADER_ROWS), metrics.cellWidth.value, metrics.cellHeight.value)
         }
@@ -558,44 +569,70 @@ private fun ClipboardChips(clip: ClipInsight, callbacks: HomeCallbacks) {
 }
 
 @Composable
-private fun DockBar(state: HomeUiState, callbacks: HomeCallbacks, modifier: Modifier = Modifier, dropHere: Boolean = false) {
+private fun DockBar(
+    state: HomeUiState,
+    callbacks: HomeCallbacks,
+    modifier: Modifier = Modifier,
+    dropHere: Boolean = false,
+    /** DOCK_AND_GRID: pill (the default), see-through glass, or no background. */
+    dockStyle: DockStyle = DockStyle.PILL,
+    /** DOCK_AND_GRID: shown under the dock's icons (the command bar). */
+    inner: (@Composable () -> Unit)? = null,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val (color, border) = when {
+        dropHere -> scheme.primaryContainer.copy(alpha = 0.92f) to BorderStroke(2.dp, scheme.primary)
+        dockStyle == DockStyle.GLASS -> scheme.surface.copy(alpha = 0.3f) to BorderStroke(1.dp, Color.White.copy(alpha = if (LocalLauncherStyle.current.dark) 0.16f else 0.45f))
+        dockStyle == DockStyle.NONE -> Color.Transparent to null
+        else -> scheme.surface.copy(alpha = 0.74f) to themedOutline()
+    }
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = if (dropHere) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = if (dropHere) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else themedOutline(),
+        color = color,
+        contentColor = scheme.onSurface,
+        border = border,
         modifier = modifier.fillMaxWidth(),
     ) {
-        if (state.dock.isEmpty()) {
-            Text(
-                if (callbacks.dragEnabled) "Drag an app here, or long-press one in the drawer, to pin it" else "Long-press any app in the drawer to pin it here",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(20.dp),
-            )
-        } else {
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                state.dock.forEach { entry ->
-                    when (entry) {
-                        is DockEntry.App -> AppGridTile(
-                            app = entry.app,
-                            onClick = { bounds -> callbacks.onLaunch(entry.app, bounds) },
-                            onLongClick = { callbacks.onAppLongPress(entry.app, null) },
-                            showLabel = false,
-                            iconSize = 52.dp,
-                            badgeCount = state.badgeFor(entry.app),
-                            modifier = Modifier.weight(1f),
-                        )
-                        is DockEntry.Folder -> FolderTile(
-                            folder = entry.folder,
-                            apps = state.appsOf(entry.folder),
-                            onClick = { callbacks.onOpenFolder(entry.folder) },
-                            onLongClick = { callbacks.onFolderLongPress(entry.folder, null) },
-                            showLabel = false,
-                            iconSize = 52.dp,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+        Column {
+            DockIcons(state, callbacks)
+            inner?.let { content ->
+                Box(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) { content() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockIcons(state: HomeUiState, callbacks: HomeCallbacks) {
+    if (state.dock.isEmpty()) {
+        Text(
+            if (callbacks.dragEnabled) "Drag an app here, or long-press one in the drawer, to pin it" else "Long-press any app in the drawer to pin it here",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(20.dp),
+        )
+    } else {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            state.dock.forEach { entry ->
+                when (entry) {
+                    is DockEntry.App -> AppGridTile(
+                        app = entry.app,
+                        onClick = { bounds -> callbacks.onLaunch(entry.app, bounds) },
+                        onLongClick = { callbacks.onAppLongPress(entry.app, null) },
+                        showLabel = false,
+                        iconSize = 52.dp,
+                        badgeCount = state.badgeFor(entry.app),
+                        modifier = Modifier.weight(1f),
+                    )
+                    is DockEntry.Folder -> FolderTile(
+                        folder = entry.folder,
+                        apps = state.appsOf(entry.folder),
+                        onClick = { callbacks.onOpenFolder(entry.folder) },
+                        onLongClick = { callbacks.onFolderLongPress(entry.folder, null) },
+                        showLabel = false,
+                        iconSize = 52.dp,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }

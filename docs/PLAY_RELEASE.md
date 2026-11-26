@@ -36,6 +36,26 @@ Google Play doesn't allow, such as all-files access, stay in the full version.
 | 1.7 | Blur behind drawer and sheets, wallpaper motion | `BLUR_EFFECTS` | Full only: waiting for a phone test |
 | 1.7 | Music controls on the home screen | `MEDIA_CONTROLS` | Full only: waiting for a phone test |
 | 1.7 | Instant search: contacts, settings, to-dos, files, sums, conversions | `INSTANT_SEARCH` | Full only: waiting for a phone test |
+| 1.8 | Assistant memory | `ASSISTANT_MEMORY` | Full only: waiting for a phone test |
+| 1.8 | Replies read aloud, microphone in the chat | `SPOKEN_REPLIES` | Full only: waiting for a phone test |
+| 1.8 | Custom gestures (swipe down, double-tap, two-finger swipe) | `CUSTOM_GESTURES` | Full only: waiting for a phone test |
+| 1.8 | Dock looks, command bar in the dock, home rows, app name size and font | `DOCK_AND_GRID` | Full only: waiting for a phone test |
+
+Policy check for 1.8: no new permission and nothing new leaves the phone.
+- *Memory* stores what the user asked to be remembered in the app's database on the phone, shown
+  only to the on-device model, excluded from Android's cloud backup, and deletable in Settings.
+  It is user-provided content kept on the device, so the Data safety answers don't change; the
+  privacy policy now names it.
+- *Spoken replies* use the phone's text-to-speech engine with an offline voice only (a network
+  voice would send the reply's text out, so none is used). The engine is found with a `<queries>`
+  entry for `android.intent.action.TTS_SERVICE` in `src/full/AndroidManifest.xml`; move it to
+  `src/main` when the feature graduates. The microphone uses the system speech recognizer, as the
+  home command bar already does (no `RECORD_AUDIO`).
+- *Custom gestures*: "Quick Settings" uses the accessibility service's
+  `GLOBAL_ACTION_QUICK_SETTINGS`. Before this graduates, add it to the Play Console accessibility
+  declaration and to the in-app disclosure (they name lock and notifications today); the privacy
+  policy already lists it.
+- *Dock and grid* only changes how the home screen is drawn.
 
 Policy check for 1.7: no new permission and nothing new leaves the phone.
 - *Icon packs* are found with `<queries>` for the intents icon packs declare (package visibility by
