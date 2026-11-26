@@ -4,12 +4,13 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.ailauncher.domain.model.AppTheme
 import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.GestureAction
 import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.ModelConfig
 
@@ -64,6 +65,12 @@ internal object SettingsKeys {
     val INSTANT_SEARCH = booleanPreferencesKey("instant_search")
     val ASSISTANT_MEMORY = booleanPreferencesKey("assistant_memory")
     val SPOKEN_REPLIES = stringPreferencesKey("spoken_replies")
+    val SWIPE_DOWN_ACTION = stringPreferencesKey("swipe_down_action")
+    val DOUBLE_TAP_ACTION = stringPreferencesKey("double_tap_action")
+    val TWO_FINGER_ACTION = stringPreferencesKey("two_finger_action")
+    val SWIPE_DOWN_APP = stringPreferencesKey("swipe_down_app")
+    val DOUBLE_TAP_APP = stringPreferencesKey("double_tap_app")
+    val TWO_FINGER_APP = stringPreferencesKey("two_finger_app")
 
     val CONTEXT_SIZE = intPreferencesKey("model_context_size")
     val THREADS = intPreferencesKey("model_threads")
@@ -130,6 +137,12 @@ internal fun Preferences.toLauncherSettings(): LauncherSettings {
         instantSearch = this[SettingsKeys.INSTANT_SEARCH] ?: defaults.instantSearch,
         assistantMemory = this[SettingsKeys.ASSISTANT_MEMORY] ?: defaults.assistantMemory,
         spokenReplies = enumOrDefault(this[SettingsKeys.SPOKEN_REPLIES], defaults.spokenReplies),
+        swipeDownAction = this[SettingsKeys.SWIPE_DOWN_ACTION]?.let { name -> GestureAction.entries.firstOrNull { it.name == name } },
+        doubleTapAction = this[SettingsKeys.DOUBLE_TAP_ACTION]?.let { name -> GestureAction.entries.firstOrNull { it.name == name } },
+        twoFingerSwipeAction = enumOrDefault(this[SettingsKeys.TWO_FINGER_ACTION], defaults.twoFingerSwipeAction),
+        swipeDownApp = this[SettingsKeys.SWIPE_DOWN_APP],
+        doubleTapApp = this[SettingsKeys.DOUBLE_TAP_APP],
+        twoFingerApp = this[SettingsKeys.TWO_FINGER_APP],
     )
 }
 
@@ -184,6 +197,12 @@ internal fun MutablePreferences.writeLauncherSettings(s: LauncherSettings) {
     this[SettingsKeys.INSTANT_SEARCH] = s.instantSearch
     this[SettingsKeys.ASSISTANT_MEMORY] = s.assistantMemory
     this[SettingsKeys.SPOKEN_REPLIES] = s.spokenReplies.name
+    setOrRemove(SettingsKeys.SWIPE_DOWN_ACTION, s.swipeDownAction?.name)
+    setOrRemove(SettingsKeys.DOUBLE_TAP_ACTION, s.doubleTapAction?.name)
+    this[SettingsKeys.TWO_FINGER_ACTION] = s.twoFingerSwipeAction.name
+    setOrRemove(SettingsKeys.SWIPE_DOWN_APP, s.swipeDownApp)
+    setOrRemove(SettingsKeys.DOUBLE_TAP_APP, s.doubleTapApp)
+    setOrRemove(SettingsKeys.TWO_FINGER_APP, s.twoFingerApp)
 }
 
 internal fun Preferences.toModelConfig(): ModelConfig {
@@ -210,6 +229,10 @@ internal fun MutablePreferences.writeModelConfig(c: ModelConfig) {
     this[SettingsKeys.REASONING_DEFAULT] = c.reasoningByDefault
     this[SettingsKeys.ACTIVE_MODEL] = c.activeModelId
     this[SettingsKeys.GPU_OFFLOAD] = c.gpuOffload
+}
+
+private fun MutablePreferences.setOrRemove(key: Preferences.Key<String>, value: String?) {
+    if (value != null) this[key] = value else remove(key)
 }
 
 private inline fun <reified E : Enum<E>> enumOrDefault(value: String?, default: E): E =

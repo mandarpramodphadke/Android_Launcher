@@ -17,8 +17,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Optional accessibility service used only for two global actions: lock the screen (double-tap on
- * the home screen) and open the notification shade (swipe down). It does not read window content.
+ * Optional accessibility service used only for global actions: lock the screen (double-tap on the
+ * home screen), open the notification shade (swipe down) and, in the full version, open Quick
+ * Settings (a gesture's choice). It does not read window content.
  * Locking via accessibility keeps fingerprint/face unlock available, unlike DevicePolicyManager.
  */
 class LauncherAccessibilityService : AccessibilityService() {
@@ -92,6 +93,22 @@ class SystemGestureController @Inject constructor(
             true
         } catch (e: ReflectiveOperationException) {
             Log.w(TAG, "expandNotificationsPanel unavailable", e)
+            false
+        }
+    }
+
+    /** Expands Quick Settings fully (CUSTOM_GESTURES); same route as [expandNotifications]. */
+    @SuppressLint("WrongConstant")
+    fun expandQuickSettings(): Boolean {
+        LauncherAccessibilityService.instance?.let {
+            return it.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+        }
+        return try {
+            val service = context.getSystemService("statusbar") ?: return false
+            Class.forName("android.app.StatusBarManager").getMethod("expandSettingsPanel").invoke(service)
+            true
+        } catch (e: ReflectiveOperationException) {
+            Log.w(TAG, "expandSettingsPanel unavailable", e)
             false
         }
     }

@@ -150,10 +150,12 @@ class BetterAnswersTest {
             "<tool_call>\n{\"name\": \"get_device_info\", \"arguments\": {\"\"}}\n</tool_call>",
             "<tool_call>\n{\"name\": \"get_device_info\", \"arguments\": {\"}}\n</tool_call>",
             "<tool>\n{\"name\": \"get_device_info\", \"arguments\": {\"\"}}\n</tool>",
+            // Text first, then the call in <tools> tags.
+            "Let me check.\n\n<tools>\n{\"name\": \"get_device_info\", \"arguments\": {}}\n</tools>",
         ).forEach { output ->
             val lenient = ModelOutputParser.parse(output, lenient = true)
             assertThat(lenient.toolCalls.map { it.name }).containsExactly("get_device_info")
-            assertThat(lenient.answer).isEmpty()
+            assertThat(lenient.answer).doesNotContain("get_device_info")
             assertThat(ModelOutputParser.parse(output).toolCalls).isEmpty()
         }
         // Salvaged arguments still parse when only the outer object is broken.

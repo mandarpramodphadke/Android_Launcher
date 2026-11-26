@@ -124,11 +124,8 @@ class ChatAgent @Inject constructor(
     }
 
     /** The system prompt the model gets for [profile] (also shown in the chat's customize sheet). */
-    fun systemPrompt(profile: AssistantProfile): String = SystemPrompts.withMemories(
-        SystemPrompts.assistant(profile, features.betterAnswers),
-        memories,
-        canSave = memoryOn && llm.contextSize >= ToolDefinitions.FULL_TOOLSET_MIN_CONTEXT,
-    )
+    fun systemPrompt(profile: AssistantProfile): String =
+        SystemPrompts.withMemories(SystemPrompts.assistant(profile, features.betterAnswers), memories)
 
     /** The tool set: fixed per n_ctx, build and memory switch, so the KV-cached prefix stays valid. */
     private fun tools() = ToolDefinitions.forContext(llm.contextSize, features.betterAnswers, memory = memoryOn)

@@ -1,11 +1,5 @@
 package com.ailauncher.presentation.home
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.runtime.CompositionLocalProvider
-import com.ailauncher.presentation.chat.AiChatScreen
-import com.ailauncher.presentation.components.LocalNavAnimatedVisibilityScope
-import com.ailauncher.presentation.planner.PlannerTab
-import com.ailauncher.presentation.system.SystemInfoScreen
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
@@ -18,6 +12,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.MutatePriority
@@ -34,18 +29,18 @@ import androidx.compose.foundation.gestures.snapTo
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -54,6 +49,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -69,7 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -83,25 +79,32 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ailauncher.BuildConfig
 import com.ailauncher.domain.clipboard.ClipAction
 import com.ailauncher.domain.clipboard.ClipboardAnalyzer
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CustomFolder
+import com.ailauncher.domain.model.GestureAction
+import com.ailauncher.domain.model.HomeGesture
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
 import com.ailauncher.domain.model.LauncherTool
 import com.ailauncher.domain.model.LauncherWidgetKind
 import com.ailauncher.domain.model.TodoItem
+import com.ailauncher.domain.model.actionFor
+import com.ailauncher.domain.model.appFor
 import com.ailauncher.domain.usecase.TodoWidgets
-import com.ailauncher.BuildConfig
 import com.ailauncher.presentation.HomePress
+import com.ailauncher.presentation.chat.AiChatScreen
 import com.ailauncher.presentation.components.AppActionsSheet
 import com.ailauncher.presentation.components.HomeGridMetrics
+import com.ailauncher.presentation.components.LocalNavAnimatedVisibilityScope
 import com.ailauncher.presentation.components.SpecialAccess
 import com.ailauncher.presentation.components.SystemBarIcons
 import com.ailauncher.presentation.components.findActivity
@@ -115,7 +118,9 @@ import com.ailauncher.presentation.drawer.authenticatePrivateSpace
 import com.ailauncher.presentation.folders.FolderEditorSheet
 import com.ailauncher.presentation.folders.FolderSheet
 import com.ailauncher.presentation.folders.FoldersViewModel
+import com.ailauncher.presentation.planner.PlannerTab
 import com.ailauncher.presentation.planner.TodoEditorSheet
+import com.ailauncher.presentation.system.SystemInfoScreen
 import com.ailauncher.presentation.theme.LocalLauncherStyle
 import com.ailauncher.presentation.theme.rememberWallpaperTint
 import kotlinx.coroutines.Dispatchers
@@ -357,7 +362,8 @@ fun LauncherHomeScreen(
         privateSpace = null // Private Space locks with the screen.
         scope.launch { lockFade.snapTo(0f) }
     })
-    val doubleTap: () -> Unit = {
+    /** Dims and scales home out, then locks; [onUnavailable] when no lock method is set up yet. */
+    val lockWithAnimation: (onUnavailable: () -> Unit) -> Unit = { onUnavailable ->
         if (viewModel.canLock()) {
             scope.launch {
                 lockFade.animateTo(1f, tween(PRE_LOCK_MILLIS, easing = FastOutLinearInEasing))
@@ -369,8 +375,39 @@ fun LauncherHomeScreen(
                 }
             }
         } else {
-            viewModel.onDoubleTapWithoutLock()
+            onUnavailable()
         }
+    }
+    // CUSTOM_GESTURES: each gesture runs the action chosen in Settings.
+    val drawerSearchFocus = remember { FocusRequester() }
+    val multiTouch = remember { MultiTouchTracker() }
+    val currentSettings by rememberUpdatedState(state.settings)
+    val runGesture: (HomeGesture) -> Unit = { gesture ->
+        when (currentSettings.actionFor(gesture)) {
+            GestureAction.NOTHING -> Unit
+            GestureAction.NOTIFICATIONS -> viewModel.expandNotifications()
+            GestureAction.QUICK_SETTINGS -> viewModel.expandQuickSettings()
+            GestureAction.LOCK -> lockWithAnimation(viewModel::lockUnavailable)
+            GestureAction.ASSISTANT -> openChat(null)
+            GestureAction.SEARCH -> {
+                openDrawer()
+                scope.launch {
+                    delay(SEARCH_FOCUS_DELAY_MILLIS)
+                    runCatching { drawerSearchFocus.requestFocus() }
+                }
+            }
+            GestureAction.APP_DRAWER -> openDrawer()
+            GestureAction.OPEN_APP -> viewModel.launchGestureApp(currentSettings.appFor(gesture))
+            GestureAction.FLASHLIGHT -> viewModel.toggleFlashlight()
+            GestureAction.SYSTEM_INFO -> openSystemInfo?.invoke() ?: openChat(null)
+            GestureAction.PLANNER -> onOpenPlanner()
+        }
+    }
+    val currentRunGesture by rememberUpdatedState(runGesture)
+    val doubleTap: () -> Unit = if (BuildConfig.CUSTOM_GESTURES) {
+        { runGesture(HomeGesture.DOUBLE_TAP) }
+    } else {
+        { lockWithAnimation { viewModel.onDoubleTapWithoutLock() } }
     }
     val currentDoubleTap by rememberUpdatedState(doubleTap)
     val currentEditing by rememberUpdatedState(editingWidgetId)
@@ -655,6 +692,10 @@ fun LauncherHomeScreen(
                         alpha *= 1f - panels.chatProgress
                     }
                 }
+                .twoFingerSwipeDown(
+                    enabled = BuildConfig.CUSTOM_GESTURES && editingWidgetId == null && !(panelsEnabled && panels.showingPanel),
+                    tracker = multiTouch,
+                ) { currentRunGesture(HomeGesture.TWO_FINGER_SWIPE_DOWN) }
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onTap = {
@@ -676,7 +717,12 @@ fun LauncherHomeScreen(
                     },
                     onDragStopped = { velocity ->
                         val pulledDown = homePull[0] > 0f && (homePull[0] > swipeDownDistance || velocity > flingVelocity)
-                        if (pulledDown && currentDrawerOffset() >= drawerHeight - 0.5f) viewModel.onSwipeDown() else settleDrawer(velocity)
+                        when {
+                            !pulledDown || currentDrawerOffset() < drawerHeight - 0.5f -> settleDrawer(velocity)
+                            !BuildConfig.CUSTOM_GESTURES -> viewModel.onSwipeDown()
+                            // A two-finger swipe has its own action (below), not swipe down's.
+                            !multiTouch.active -> currentRunGesture(HomeGesture.SWIPE_DOWN)
+                        }
                     },
                 ),
         ) {
@@ -742,6 +788,7 @@ fun LauncherHomeScreen(
             DrawerContent(
                 state = drawerUi,
                 queryState = drawerViewModel.queryState,
+                searchFocus = drawerSearchFocus,
                 minimal = style.minimal,
                 callbacks = drawerCallbacks,
                 modifier = Modifier.draggable(
@@ -1051,3 +1098,6 @@ private fun WidgetListDialog(lists: List<String>, selected: String?, onPick: (St
 
 /** How far home moves for each pixel a panel slides in. */
 private const val PANEL_PARALLAX = 0.25f
+
+/** CUSTOM_GESTURES: the drawer opens before its search field can take the keyboard. */
+private const val SEARCH_FOCUS_DELAY_MILLIS = 250L

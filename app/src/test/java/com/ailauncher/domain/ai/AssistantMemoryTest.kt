@@ -25,6 +25,9 @@ class AssistantMemoryTest {
             // Measured: the model said "I'll remember" for these without saving.
             "I take my coffee with oat milk, keep that in mind for later" to "I take my coffee with oat milk",
             "My gym locker is number 112. Please don't forget it." to "My gym locker is number 112",
+            "FYI our anniversary is on 12 June, make a note of it" to "our anniversary is on 12 June",
+            "Just so you know, I'm allergic to shellfish. Save that." to "I'm allergic to shellfish",
+            "My bike lock code is 0420, write it down" to "My bike lock code is 0420",
         ).forEach { (text, fact) ->
             assertThat(on.parse(text)).isEqualTo(ToolCommand.ManageMemory(MemoryAction.SAVE, fact))
         }
@@ -111,19 +114,12 @@ class AssistantMemoryTest {
     fun memoriesFollowTheSystemPromptAndChangeNothingWithoutThem() {
         val base = SystemPrompts.generalAssistant
         assertThat(SystemPrompts.withMemories(base, emptyList())).isSameInstanceAs(base)
-        val prompt = SystemPrompts.withMemories(base, listOf("Locker code is 4512", "Wife's birthday is 4 March"), canSave = true)
+        val prompt = SystemPrompts.withMemories(base, listOf("Locker code is 4512", "Wife's birthday is 4 March"))
         assertThat(prompt).startsWith(base)
         assertThat(prompt).endsWith(
-            "\n\nMemory:\n- When the user asks you to remember something, save it with manage_memory; never just say you will." +
-                "\n- Facts the user asked you to remember. Use them whenever they matter (a diet when suggesting food, ages and names for gifts), without saying you remembered them:" +
-                "\n  - Locker code is 4512\n  - Wife's birthday is 4 March",
+            "\n\nWhat the user asked you to remember (use it when it helps; don't bring it up otherwise):\n" +
+                "- Locker code is 4512\n- Wife's birthday is 4 March",
         )
         assertThat(prompt).doesNotContain("Local time")
-        // Without the tool (2048-token context) the facts are still there, the save rule is not.
-        val compact = SystemPrompts.withMemories(base, listOf("Locker code is 4512"), canSave = false)
-        assertThat(compact).doesNotContain("manage_memory")
-        assertThat(compact).endsWith("  - Locker code is 4512")
-        // Memory on but nothing saved yet: only the save rule.
-        assertThat(SystemPrompts.withMemories(base, emptyList(), canSave = true)).endsWith("\n\nMemory:\n- When the user asks you to remember something, save it with manage_memory; never just say you will.")
     }
 }

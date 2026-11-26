@@ -45,23 +45,17 @@ object SystemPrompts {
     }
 
     /**
-     * [prompt] plus the memory section (ASSISTANT_MEMORY): how to save ([canSave]: manage_memory is
-     * offered) and what the user asked to be remembered. It changes only when a memory is saved or
-     * forgotten, so the prefix cache stays valid in between. Measured on Qwen3-1.7B: without "use them
-     * whenever they matter" it ignored a saved diet when writing a meal plan, and without "never just
-     * say you will" it answered "I'll remember that" without saving.
+     * [prompt] plus what the user asked the assistant to remember (ASSISTANT_MEMORY). It changes
+     * only when a memory is saved or forgotten, so the prefix cache stays valid in between.
+     * Measured on Qwen3-1.7B: a flat list after one header line recalled facts every time; nesting
+     * it under extra rules made it answer "I can't check where you parked" instead.
      */
-    fun withMemories(prompt: String, memories: List<String>, canSave: Boolean = false): String {
-        if (memories.isEmpty() && !canSave) return prompt
-        return buildString {
-            append(prompt).append("\n\nMemory:")
-            if (canSave) append("\n- When the user asks you to remember something, save it with manage_memory; never just say you will.")
-            if (memories.isNotEmpty()) {
-                append("\n- Facts the user asked you to remember. Use them whenever they matter (a diet when suggesting food, ages and names for gifts), without saying you remembered them:")
-                memories.forEach { append("\n  - ").append(it) }
-            }
-        }
+    fun withMemories(prompt: String, memories: List<String>): String {
+        if (memories.isEmpty()) return prompt
+        return prompt + "\n\n" + MEMORY_HEADER + "\n" + memories.joinToString("\n") { "- $it" }
     }
+
+    internal const val MEMORY_HEADER = "What the user asked you to remember (use it when it helps; don't bring it up otherwise):"
 
     /** The default prompt with [betterAnswers] on. Static, like [assistant]. */
     val generalAssistant: String by lazy { buildGeneralAssistant(AssistantProfile()) }

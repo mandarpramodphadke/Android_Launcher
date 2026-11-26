@@ -167,7 +167,7 @@ class QuickCommandParser(
             }
         }
         MEMORY_SAVE_AFTER.matchEntire(original)?.let { m ->
-            val fact = m.groupValues[1].trim().trimEnd(',', ' ')
+            val fact = m.groupValues[1].trim().trimEnd(',', ' ').replace(FACT_PREAMBLE, "")
             if (fact.isNotEmpty() && !fact.endsWith("?") && !ASKS_IF_REMEMBERED.containsMatchIn(fact)) {
                 return ToolCommand.ManageMemory(MemoryAction.SAVE, fact)
             }
@@ -291,10 +291,15 @@ class QuickCommandParser(
         val NAMED_LIST = Regex("""^(?:show|open|view|see|check)\s+(?:me\s+)?(?:my\s+)?([a-z]+)\s+list$""")
         val NOT_LISTS = setOf("to", "my", "the", "play", "contact", "contacts", "favorites", "favourites", "block", "black", "white", "guest", "mailing", "email")
         val MEMORY_SAVE = Regex("""^(?:(?:remember|keep in mind|don'?t forget)(?:\s+that)?|note\s+that)[:,]?\s+(.+)$""", RegexOption.IGNORE_CASE)
+        /** "<fact>, remember that", "<fact>. Make a note of it.", "<fact>. Save that." */
         val MEMORY_SAVE_AFTER = Regex(
-            """^(.+?)[,.!]?\s+(?:please\s+)?(?:(?:remember|keep in mind|don'?t forget)\s+(?:that|this|it)|keep (?:that|this|it) in mind)(?:\s+for later)?[.!]?$""",
+            """^(.+?)[,.!]?\s+(?:please\s+)?(?:(?:remember|keep in mind|don'?t forget|save|make a note of)\s+(?:that|this|it)|""" +
+                """(?:keep|note|write) (?:that|this|it) (?:in mind|down))(?:\s+for later)?[.!]?$""",
             RegexOption.IGNORE_CASE,
         )
+
+        /** "FYI", "just so you know": not part of the fact. */
+        val FACT_PREAMBLE = Regex("""^(?:fyi|btw|by the way|just so you know|for your information|for the record)[,:]?\s+""", RegexOption.IGNORE_CASE)
         val ASKS_IF_REMEMBERED = Regex("""^(?:do|did|can|could|will|would|don't|didn't)\s+you\b""", RegexOption.IGNORE_CASE)
         val MEMORY_LIST = Regex(
             """^(?:what do you (?:remember|know)(?: about me)?|what have you remembered|what did i ask you to remember|""" +

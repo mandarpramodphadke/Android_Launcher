@@ -48,8 +48,8 @@ object ModelOutputParser {
         allowComments = true
     }
 
-    /** A whole answer that is a JSON call wrapped in `<tool>` tags (seen from Qwen3-1.7B). */
-    private val TOOL_TAG_CALL = Regex("""^<tool>\s*(\{.*\})\s*</tool>$""", RegexOption.DOT_MATCHES_ALL)
+    /** A JSON call wrapped in `<tool>` or `<tools>` tags instead of `<tool_call>` (seen from Qwen3-1.7B). */
+    private val TOOL_TAG_CALL = Regex("""<(tools?)>\s*(\{.*?\})\s*</\1>""", RegexOption.DOT_MATCHES_ALL)
 
     /**
      * @param lenient also recover calls the model wrote badly (the BETTER_ANSWERS switch): broken
@@ -110,10 +110,10 @@ object ModelOutputParser {
             }
         }
         if (lenient && calls.isEmpty() && !inProgress) {
-            TOOL_TAG_CALL.matchEntire(visible)?.let { m ->
-                parseToolCallJson(m.groupValues[1], lenient = true)?.let {
+            TOOL_TAG_CALL.find(visible)?.let { m ->
+                parseToolCallJson(m.groupValues[2], lenient = true)?.let {
                     calls += it
-                    visible = ""
+                    visible = visible.removeRange(m.range).trim()
                 }
             }
         }

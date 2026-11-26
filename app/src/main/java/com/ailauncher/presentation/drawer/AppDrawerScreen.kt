@@ -68,6 +68,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -121,6 +123,8 @@ internal fun DrawerContent(
     modifier: Modifier = Modifier,
     handleModifier: Modifier = Modifier,
     listModifier: Modifier = Modifier,
+    /** CUSTOM_GESTURES: a gesture set to "Search" opens the drawer and focuses its search field. */
+    searchFocus: FocusRequester? = null,
 ) {
     // Minimal mode is text-only, which only the list layout can show.
     val layout = if (minimal) DrawerLayout.LIST else state.layout
@@ -143,6 +147,7 @@ internal fun DrawerContent(
                 onToggleLayout = callbacks.onToggleLayout.takeUnless { minimal },
                 onOpenPrivateSpace = callbacks.onOpenPrivateSpace,
                 onOpenSettings = callbacks.onOpenSettings,
+                searchFocus = searchFocus,
             )
             val queryText = queryState.text.toString()
             val searching = queryText.isNotBlank()
@@ -190,6 +195,7 @@ private fun DrawerTopBar(
     onToggleLayout: (() -> Unit)?,
     onOpenPrivateSpace: () -> Unit,
     onOpenSettings: () -> Unit,
+    searchFocus: FocusRequester? = null,
 ) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         LauncherTextField(
@@ -197,7 +203,7 @@ private fun DrawerTopBar(
             placeholder = "Search apps",
             leadingContent = { Icon(Icons.Rounded.Search, null, Modifier.padding(start = 14.dp, end = 8.dp)) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).then(searchFocus?.let { Modifier.focusRequester(it) } ?: Modifier),
         )
         if (onToggleLayout != null) {
             IconButton(onClick = onToggleLayout) {

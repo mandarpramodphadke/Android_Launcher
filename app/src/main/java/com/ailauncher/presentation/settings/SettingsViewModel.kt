@@ -120,6 +120,11 @@ class SettingsViewModel @Inject constructor(
         (if (BuildConfig.ASSISTANT_MEMORY) memoryRepository.memories else flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Apps a gesture can open (CUSTOM_GESTURES), by name. */
+    val gestureApps: StateFlow<List<AppInfo>> =
+        (if (BuildConfig.CUSTOM_GESTURES) appRepository.apps.map { apps -> apps.filterNot { it.isHidden }.sortedBy { it.label.lowercase() } } else flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun deleteMemory(memory: Memory) {
         viewModelScope.launch { memoryRepository.delete(memory.id) }
     }

@@ -1,7 +1,6 @@
 package com.ailauncher.presentation.settings
 
 import android.content.Intent
-import androidx.core.net.toUri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,10 +20,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -60,32 +59,37 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.ailauncher.BuildConfig
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.domain.model.DrawerTab
-import com.ailauncher.domain.model.FileAccessLevel
-import com.ailauncher.domain.model.SearchFolder
-import com.ailauncher.presentation.components.NotificationDigestDisclosure
-import com.ailauncher.presentation.components.SpecialAccess
-import com.ailauncher.presentation.drawer.PrivateSpaceAuth
-import com.ailauncher.presentation.drawer.authenticatePrivateSpace
 import com.ailauncher.domain.model.EngineState
+import com.ailauncher.domain.model.FileAccessLevel
+import com.ailauncher.domain.model.GestureAction
+import com.ailauncher.domain.model.HomeGesture
 import com.ailauncher.domain.model.HomeTextColor
 import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
+import com.ailauncher.domain.model.SearchFolder
 import com.ailauncher.domain.model.ThemeMode
+import com.ailauncher.domain.model.actionFor
+import com.ailauncher.domain.model.withGesture
 import com.ailauncher.presentation.components.AccessibilityDisclosure
 import com.ailauncher.presentation.components.AppIcon
 import com.ailauncher.presentation.components.AppListItem
+import com.ailauncher.presentation.components.NotificationDigestDisclosure
 import com.ailauncher.presentation.components.OnResume
 import com.ailauncher.presentation.components.PassphraseDialog
+import com.ailauncher.presentation.components.SpecialAccess
 import com.ailauncher.presentation.components.ThemedSystemBarIcons
 import com.ailauncher.presentation.components.findActivity
 import com.ailauncher.presentation.components.formatBytes
+import com.ailauncher.presentation.drawer.PrivateSpaceAuth
+import com.ailauncher.presentation.drawer.authenticatePrivateSpace
 import java.time.LocalDate
 
 private enum class BackupFlow { EXPORT, IMPORT, CLOUD_UP, CLOUD_DOWN }
@@ -115,6 +119,8 @@ fun SettingsScreen(
     val iconPacks by viewModel.iconPacks.collectAsStateWithLifecycle()
     val memories by viewModel.memories.collectAsStateWithLifecycle()
     var showMemories by remember { mutableStateOf(false) }
+    val gestureApps by viewModel.gestureApps.collectAsStateWithLifecycle()
+    var pickingAppFor by remember { mutableStateOf<HomeGesture?>(null) }
     OnResume {
         viewModel.refreshSystemStatus()
         viewModel.refreshIconPacks()
@@ -285,17 +291,32 @@ fun SettingsScreen(
 
             // ---------------------------------------------------------------- Gestures
             item { SectionTitle("Home screen & gestures") }
-            item {
-                val lockStatus = when (state.system.lockMethod) {
-                    LockMethod.ACCESSIBILITY -> "Using the accessibility service (keeps fingerprint unlock)"
-                    LockMethod.DEVICE_ADMIN -> "Using device admin"
-                    LockMethod.NONE -> "Tap to set up: needs the accessibility service or device admin"
-                }
-                SwitchSetting("Double-tap to lock", lockStatus, state.settings.doubleTapToLock) { on ->
-                    viewModel.updateSettings { it.copy(doubleTapToLock = on) }
+            if (BuildConfig.CUSTOM_GESTURES) {
+                gestureSettings(
+                    settings = state.settings,
+                    apps = gestureApps,
+                    systemInfoAvailable = BuildConfig.SYSTEM_INFO,
+                    onUpdate = viewModel::updateSettings,
+                    onPickApp = { pickingAppFor = it },
+                )
+            } else {
+                item {
+                    val lockStatus = when (state.system.lockMethod) {
+                        LockMethod.ACCESSIBILITY -> "Using the accessibility service (keeps fingerprint unlock)"
+                        LockMethod.DEVICE_ADMIN -> "Using device admin"
+                        LockMethod.NONE -> "Tap to set up: needs the accessibility service or device admin"
+                    }
+                    SwitchSetting("Double-tap to lock", lockStatus, state.settings.doubleTapToLock) { on ->
+                        viewModel.updateSettings { it.copy(doubleTapToLock = on) }
+                    }
                 }
             }
-            if (state.system.lockMethod == LockMethod.NONE && state.settings.doubleTapToLock) {
+            val lockChosen = if (BuildConfig.CUSTOM_GESTURES) {
+                HomeGesture.entries.any { state.settings.actionFor(it) == GestureAction.LOCK }
+            } else {
+                state.settings.doubleTapToLock
+            }
+            if (state.system.lockMethod == LockMethod.NONE && lockChosen) {
                 item {
                     Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { showAccessibilityDisclosure = true }) { Text("Accessibility") }
@@ -303,9 +324,11 @@ fun SettingsScreen(
                     }
                 }
             }
-            item {
-                SwitchSetting("Swipe down for notifications", null, state.settings.swipeDownForNotifications) { on ->
-                    viewModel.updateSettings { it.copy(swipeDownForNotifications = on) }
+            if (!BuildConfig.CUSTOM_GESTURES) {
+                item {
+                    SwitchSetting("Swipe down for notifications", null, state.settings.swipeDownForNotifications) { on ->
+                        viewModel.updateSettings { it.copy(swipeDownForNotifications = on) }
+                    }
                 }
             }
             item {
@@ -550,6 +573,17 @@ fun SettingsScreen(
         )
     }
 
+    pickingAppFor?.let { gesture ->
+        GestureAppPicker(
+            gesture = gesture,
+            apps = gestureApps,
+            onPick = { app ->
+                viewModel.updateSettings { it.withGesture(gesture, GestureAction.OPEN_APP, app.componentKey) }
+                pickingAppFor = null
+            },
+            onDismiss = { pickingAppFor = null },
+        )
+    }
     if (showMemories) {
         MemoriesSheet(memories, onDelete = viewModel::deleteMemory, onClear = viewModel::clearMemories, onDismiss = { showMemories = false })
     }

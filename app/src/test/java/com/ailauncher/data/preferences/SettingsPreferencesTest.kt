@@ -9,11 +9,13 @@ import com.ailauncher.domain.model.AssistantTone
 import com.ailauncher.domain.model.ChatBackground
 import com.ailauncher.domain.model.ClockFace
 import com.ailauncher.domain.model.ClockFont
-import com.ailauncher.domain.model.IconShape
-import com.ailauncher.domain.model.ResponseLength
+import com.ailauncher.domain.model.GestureAction
 import com.ailauncher.domain.model.HomeTextColor
+import com.ailauncher.domain.model.IconShape
 import com.ailauncher.domain.model.IconStyle
 import com.ailauncher.domain.model.LauncherSettings
+import com.ailauncher.domain.model.ResponseLength
+import com.ailauncher.domain.model.SpokenReplies
 import com.ailauncher.domain.model.ThemeMode
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
@@ -42,6 +44,25 @@ class SettingsPreferencesTest {
         )
         val prefs = mutablePreferencesOf().apply { writeLauncherSettings(settings) }
         assertThat(prefs.toLauncherSettings()).isEqualTo(settings)
+    }
+
+    @Test
+    fun roundTripsTheAssistantAndGestureSettingsOf18() {
+        val settings = LauncherSettings(
+            assistantMemory = false,
+            spokenReplies = SpokenReplies.ALWAYS,
+            swipeDownAction = GestureAction.SEARCH,
+            doubleTapAction = GestureAction.OPEN_APP,
+            doubleTapApp = "com.spotify.music/.MainActivity",
+            twoFingerSwipeAction = GestureAction.FLASHLIGHT,
+        )
+        val prefs = mutablePreferencesOf().apply { writeLauncherSettings(settings) }
+        assertThat(prefs.toLauncherSettings()).isEqualTo(settings)
+        // Choosing again clears what is no longer set.
+        prefs.writeLauncherSettings(settings.copy(swipeDownAction = null, doubleTapAction = GestureAction.LOCK, doubleTapApp = null))
+        val read = prefs.toLauncherSettings()
+        assertThat(read.swipeDownAction).isNull()
+        assertThat(read.doubleTapApp).isNull()
     }
 
     @Test

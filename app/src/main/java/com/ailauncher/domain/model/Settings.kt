@@ -176,6 +176,15 @@ data class LauncherSettings(
     val assistantMemory: Boolean = true,
     /** Read replies aloud: never, after the user spoke, or always. */
     val spokenReplies: SpokenReplies = SpokenReplies.AFTER_VOICE,
+    /** CUSTOM_GESTURES: what swipe down does; null follows [swipeDownForNotifications] (see actionFor). */
+    val swipeDownAction: GestureAction? = null,
+    /** CUSTOM_GESTURES: what double-tap does; null follows [doubleTapToLock]. */
+    val doubleTapAction: GestureAction? = null,
+    val twoFingerSwipeAction: GestureAction = GestureAction.QUICK_SETTINGS,
+    /** The apps (component keys) the gestures open when set to [GestureAction.OPEN_APP]. */
+    val swipeDownApp: String? = null,
+    val doubleTapApp: String? = null,
+    val twoFingerApp: String? = null,
 ) {
     companion object {
         const val DEFAULT_CHAT_DIM = 0.55f

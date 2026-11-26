@@ -66,8 +66,9 @@ class ChatAgentMemoryTest {
         memories.remember("my wife's birthday is 4 March")
         memories.remember("locker code is 4512")
         val prompt = agent.buildPrompt(ask("When is my wife's birthday?"), InferenceMode.FAST_ACTION)
-        assertThat(prompt).contains("\n  - Locker code is 4512\n  - My wife's birthday is 4 March\n\n# Tools")
-        assertThat(prompt).contains("save it with manage_memory; never just say you will.")
+        assertThat(prompt).contains(
+            "What the user asked you to remember (use it when it helps; don't bring it up otherwise):\n- Locker code is 4512\n- My wife's birthday is 4 March\n\n# Tools",
+        )
         assertThat(prompt).contains("\"name\": \"manage_memory\"")
         // What the customize sheet shows is what the model gets.
         assertThat(prompt).startsWith("<|im_start|>system\n" + agent.systemPrompt(LauncherSettings().assistant) + "\n\n# Tools")
@@ -75,7 +76,7 @@ class ChatAgentMemoryTest {
         // Switched off in Settings: no memories, no tool.
         settings.updateLauncherSettings { it.copy(assistantMemory = false) }
         val off = agent.buildPrompt(ask("When is my wife's birthday?"), InferenceMode.FAST_ACTION)
-        assertThat(off).doesNotContain("Memory:")
+        assertThat(off).doesNotContain("asked you to remember")
         assertThat(off).doesNotContain("manage_memory")
     }
 

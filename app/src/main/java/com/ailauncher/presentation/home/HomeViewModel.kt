@@ -15,6 +15,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
 import com.ailauncher.BuildConfig
+import com.ailauncher.data.actions.DeviceSettingsController
 import com.ailauncher.data.media.NowPlaying
 import com.ailauncher.data.media.NowPlayingRepository
 import com.ailauncher.data.packages.AppLauncher
@@ -23,6 +24,7 @@ import com.ailauncher.data.system.LockMethod
 import com.ailauncher.data.system.SystemGestureController
 import com.ailauncher.data.widgets.LauncherWidgetHost
 import com.ailauncher.data.widgets.WidgetProviderEntry
+import com.ailauncher.domain.ai.ToggleState
 import com.ailauncher.domain.clipboard.ClipInsight
 import com.ailauncher.domain.clipboard.ClipboardAnalyzer
 import com.ailauncher.domain.home.DropAction
@@ -83,6 +85,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -177,6 +180,7 @@ class HomeViewModel @Inject constructor(
     private val files: FileRepository,
     battery: BatteryMonitor,
     private val voicePrompts: VoicePrompts,
+    private val deviceSettings: DeviceSettingsController,
 ) : LauncherAppsViewModel(appRepository, appLauncher, dockRepository, homeLayout, folderRepository, shortcutRepository) {
 
     /** The command bar's microphone: the chat then knows this message was spoken (SPOKEN_REPLIES). */
@@ -382,6 +386,37 @@ class HomeViewModel @Inject constructor(
 
     fun onSwipeDown() {
         if (uiState.value.settings.swipeDownForNotifications) gestures.expandNotifications()
+    }
+
+    // ---------------------------------------------------------------- CUSTOM_GESTURES actions
+
+    fun expandNotifications() {
+        gestures.expandNotifications()
+    }
+
+    fun expandQuickSettings() {
+        if (!gestures.expandQuickSettings()) message("Quick Settings can't be opened from here on this phone")
+    }
+
+    fun toggleFlashlight() {
+        if (deviceSettings.setTorch(ToggleState.TOGGLE) == null) message("This phone has no flashlight the launcher can use")
+    }
+
+    /** A gesture set to lock, with no way to lock yet: explain how to turn it on. */
+    fun lockUnavailable() {
+        _events.trySend(HomeEvent.LockSetupNeeded)
+    }
+
+    /** Opens the app a gesture is set to ([componentKey]), if it is still installed. */
+    fun launchGestureApp(componentKey: String?) {
+        viewModelScope.launch {
+            val app = componentKey?.let { key -> appRepository.apps.first().firstOrNull { it.componentKey == key } }
+            if (app == null) {
+                message("Choose an app for this gesture in Settings")
+            } else {
+                launch(LaunchRequest(app, null, null))
+            }
+        }
     }
 
     fun openClockApp() {
