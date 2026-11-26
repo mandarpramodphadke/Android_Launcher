@@ -6,10 +6,13 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ailauncher.BuildConfig
 import com.ailauncher.data.auth.GoogleAuthRepository
 import com.ailauncher.data.backup.BackupCrypto
 import com.ailauncher.data.llm.DeviceResources
 import com.ailauncher.data.llm.GpuOffloadGuard
+import com.ailauncher.data.packages.IconPackInfo
+import com.ailauncher.data.packages.IconPackRepository
 import com.ailauncher.data.system.DefaultLauncherHelper
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.data.system.SystemGestureController
@@ -18,6 +21,7 @@ import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.FileAccessLevel
 import com.ailauncher.domain.model.LauncherSettings
+import com.ailauncher.domain.model.Memory
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.model.ModelSpec
@@ -30,6 +34,7 @@ import com.ailauncher.domain.repository.BackupSummary
 import com.ailauncher.domain.repository.CategorizationScheduler
 import com.ailauncher.domain.repository.ContactRepository
 import com.ailauncher.domain.repository.FileRepository
+import com.ailauncher.domain.repository.MemoryRepository
 import com.ailauncher.domain.repository.ModelRepository
 import com.ailauncher.domain.repository.NotificationDigestRepository
 import com.ailauncher.domain.repository.SettingsRepository
@@ -43,7 +48,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -53,10 +60,6 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
-import com.ailauncher.BuildConfig
-import kotlinx.coroutines.flow.asStateFlow
-import com.ailauncher.data.packages.IconPackInfo
-import com.ailauncher.data.packages.IconPackRepository
 
 data class SystemStatus(
     val isDefaultLauncher: Boolean = false,
@@ -109,7 +112,21 @@ class SettingsViewModel @Inject constructor(
     private val notifications: NotificationDigestRepository,
     private val gpuGuard: GpuOffloadGuard,
     private val iconPackRepository: IconPackRepository,
+    private val memoryRepository: MemoryRepository,
 ) : ViewModel() {
+
+    /** What the assistant remembers (full version: ASSISTANT_MEMORY), newest first. */
+    val memories: StateFlow<List<Memory>> =
+        (if (BuildConfig.ASSISTANT_MEMORY) memoryRepository.memories else flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun deleteMemory(memory: Memory) {
+        viewModelScope.launch { memoryRepository.delete(memory.id) }
+    }
+
+    fun clearMemories() {
+        viewModelScope.launch { memoryRepository.clear() }
+    }
 
     /** Installed icon packs (full version: ICON_CUSTOMIZATION). */
     private val _iconPacks = MutableStateFlow<List<IconPackInfo>>(emptyList())

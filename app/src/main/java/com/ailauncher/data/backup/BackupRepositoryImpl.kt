@@ -13,6 +13,7 @@ import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.repository.AuthRepository
 import com.ailauncher.domain.repository.BackupRepository
 import com.ailauncher.domain.repository.BackupSummary
+import com.ailauncher.domain.repository.MemoryRepository
 import com.ailauncher.domain.repository.SettingsRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
@@ -37,6 +38,8 @@ data class BackupPayload(
     val apps: List<AppPrefsSnapshot>,
     val categories: List<CategorySnapshot>,
     val aliases: List<AliasSnapshot>,
+    /** What the assistant was asked to remember (1.8, ASSISTANT_MEMORY); empty in older backups. */
+    val memories: List<String> = emptyList(),
 )
 
 @Serializable
@@ -64,6 +67,7 @@ class BackupRepositoryImpl @Inject constructor(
     private val appDao: AppDao,
     private val settingsRepository: SettingsRepository,
     private val authRepository: AuthRepository,
+    private val memoryRepository: MemoryRepository,
 ) : BackupRepository {
 
     private val json = Json {
@@ -83,6 +87,7 @@ class BackupRepositoryImpl @Inject constructor(
                 .map { AppPrefsSnapshot(it.componentKey, it.packageName, it.customLabel, it.isHidden, it.dockPosition) },
             categories = appDao.allCategories().map { CategorySnapshot(it.packageName, it.category, it.source) },
             aliases = appDao.allAliases().map { AliasSnapshot(it.displayAlias, it.componentKey) },
+            memories = if (BuildConfig.ASSISTANT_MEMORY) memoryRepository.all().map { it.text } else emptyList(),
         )
         val envelope = BackupCrypto.encrypt(json.encodeToString(BackupPayload.serializer(), payload).toByteArray(), passphrase)
         json.encodeToString(BackupCrypto.Envelope.serializer(), envelope).toByteArray()
@@ -128,6 +133,8 @@ class BackupRepositoryImpl @Inject constructor(
         appDao.upsertAliases(
             payload.aliases.map { AppAliasEntity(com.ailauncher.domain.search.FuzzyMatcher.normalize(it.alias), it.componentKey, it.alias) },
         )
+        // Oldest first, so the restored memories keep their order; identical ones are kept once.
+        if (BuildConfig.ASSISTANT_MEMORY) payload.memories.asReversed().forEach { memoryRepository.remember(it) }
     }
 
     override suspend fun uploadToCloud(passphrase: CharArray): Result<Long> = cloud { uid ->

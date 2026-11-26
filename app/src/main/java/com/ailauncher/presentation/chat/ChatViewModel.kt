@@ -1,11 +1,6 @@
 package com.ailauncher.presentation.chat
 
 import android.net.Uri
-import com.ailauncher.data.chat.ChatBackgroundStore
-import com.ailauncher.domain.model.AssistantProfile
-import com.ailauncher.domain.model.ChatBackground
-import com.ailauncher.domain.model.LauncherSettings
-import java.io.File
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.lifecycle.SavedStateHandle
@@ -13,12 +8,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.ailauncher.BuildConfig
+import com.ailauncher.data.chat.ChatBackgroundStore
 import com.ailauncher.data.llm.DeviceResources
 import com.ailauncher.data.report.ReportFormTemplate
 import com.ailauncher.data.share.SharedPayload
 import com.ailauncher.domain.ai.LlmEngine
 import com.ailauncher.domain.clipboard.ClipAction
 import com.ailauncher.domain.clipboard.ClipboardAnalyzer
+import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.ChatBackground
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.ChatRole
 import com.ailauncher.domain.model.ContentReport
@@ -26,6 +24,7 @@ import com.ailauncher.domain.model.DeviceHealth
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.FileEntry
 import com.ailauncher.domain.model.InferenceMode
+import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.MessageStatus
 import com.ailauncher.domain.model.ReportOutcome
 import com.ailauncher.domain.model.ReportReason
@@ -34,6 +33,8 @@ import com.ailauncher.domain.repository.ChatRepository
 import com.ailauncher.domain.repository.ContentReportRepository
 import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.repository.SettingsRepository
+import com.ailauncher.domain.speech.SpeechOutput
+import com.ailauncher.domain.speech.VoicePrompts
 import com.ailauncher.domain.usecase.ChatAgent
 import com.ailauncher.presentation.navigation.ChatRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -53,6 +54,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 /** A message plus the transient streaming flags of the reply being generated. */
@@ -95,7 +97,20 @@ class ChatViewModel @Inject constructor(
     private val reports: ContentReportRepository,
     sharedContent: SharedContentStore,
     private val backgroundStore: ChatBackgroundStore,
+    private val speech: SpeechOutput,
+    private val voicePrompts: VoicePrompts,
 ) : ViewModel() {
+
+    /** A reply is being read aloud (SPOKEN_REPLIES). */
+    val speaking: StateFlow<Boolean> = speech.speaking
+
+    fun stopSpeaking() = speech.stop()
+
+    /** The microphone in the chat: the reply to a spoken message may be read aloud. */
+    fun sendSpoken(text: String) {
+        if (text.isBlank()) return
+        agent.send(text, mode.value, spoken = true)
+    }
 
     /** The message field. Owned here and edited synchronously by the field (no cursor lag). */
     val input = TextFieldState()
@@ -187,7 +202,8 @@ class ChatViewModel @Inject constructor(
 
     fun send(text: String) {
         if (text.isBlank()) return
-        agent.send(text, mode.value)
+        // Spoken into the home command bar's microphone just before the chat opened with it.
+        agent.send(text, mode.value, spoken = BuildConfig.SPOKEN_REPLIES && voicePrompts.consume(text))
     }
 
     fun sendInput() {

@@ -19,6 +19,8 @@ class QuickCommandParser(
      * get_device_info, and "when am I free tomorrow?" → that day's plan with its free slots.
      */
     private val betterAnswers: Boolean = false,
+    /** ASSISTANT_MEMORY: "remember (that) …", "what do you remember?", "forget …". */
+    private val memory: Boolean = false,
     private val now: () -> ZonedDateTime = { ZonedDateTime.now() },
 ) {
 
@@ -28,6 +30,7 @@ class QuickCommandParser(
         // Same cleanup without lower-casing, for groups whose case matters (messages, task titles).
         val original = clean(input)
         // Longer inputs are only quick commands when they are clearly a message or a task.
+        if (memory) memoryCommand(text, original)?.let { return it }
         if (text.length > SHORT_LENGTH) return parseDictated(original) ?: deviceQuestion(text) ?: scheduleQuestion(text)
 
         ORGANIZE.matchEntire(text)?.let { return ToolCommand.SortApps }
@@ -153,6 +156,30 @@ class QuickCommandParser(
         }
     }
 
+    /** "Remember that my car is on level 3", "what do you remember about me?", "forget my car". */
+    private fun memoryCommand(text: String, original: String): ToolCommand? {
+        if (MEMORY_LIST.matches(text)) return ToolCommand.ManageMemory(MemoryAction.LIST)
+        MEMORY_SAVE.matchEntire(original)?.let { m ->
+            val fact = m.groupValues[1].trim()
+            // "Remember to buy milk" is a reminder or a to-do, not a fact; questions aren't facts either.
+            if (fact.isNotEmpty() && !fact.startsWith("to ", ignoreCase = true) && !fact.endsWith("?")) {
+                return ToolCommand.ManageMemory(MemoryAction.SAVE, fact)
+            }
+        }
+        MEMORY_SAVE_AFTER.matchEntire(original)?.let { m ->
+            val fact = m.groupValues[1].trim().trimEnd(',', ' ')
+            if (fact.isNotEmpty() && !fact.endsWith("?") && !ASKS_IF_REMEMBERED.containsMatchIn(fact)) {
+                return ToolCommand.ManageMemory(MemoryAction.SAVE, fact)
+            }
+        }
+        MEMORY_FORGET.matchEntire(original)?.let { m ->
+            val what = m.groupValues[1].trim()
+            // "Forget it" / "forget that" means "never mind".
+            if (what.lowercase(Locale.ROOT) !in NOT_A_MEMORY) return ToolCommand.ManageMemory(MemoryAction.FORGET, what)
+        }
+        return null
+    }
+
     /**
      * A question about this phone's hardware ("which LLM can my phone run?", "is my battery running
      * low?", "does my phone have enough RAM for games?"). It reads the phone's details first; the
@@ -263,6 +290,19 @@ class QuickCommandParser(
         )
         val NAMED_LIST = Regex("""^(?:show|open|view|see|check)\s+(?:me\s+)?(?:my\s+)?([a-z]+)\s+list$""")
         val NOT_LISTS = setOf("to", "my", "the", "play", "contact", "contacts", "favorites", "favourites", "block", "black", "white", "guest", "mailing", "email")
+        val MEMORY_SAVE = Regex("""^(?:(?:remember|keep in mind|don'?t forget)(?:\s+that)?|note\s+that)[:,]?\s+(.+)$""", RegexOption.IGNORE_CASE)
+        val MEMORY_SAVE_AFTER = Regex(
+            """^(.+?)[,.!]?\s+(?:please\s+)?(?:(?:remember|keep in mind|don'?t forget)\s+(?:that|this|it)|keep (?:that|this|it) in mind)(?:\s+for later)?[.!]?$""",
+            RegexOption.IGNORE_CASE,
+        )
+        val ASKS_IF_REMEMBERED = Regex("""^(?:do|did|can|could|will|would|don't|didn't)\s+you\b""", RegexOption.IGNORE_CASE)
+        val MEMORY_LIST = Regex(
+            """^(?:what do you (?:remember|know)(?: about me)?|what have you remembered|what did i ask you to remember|""" +
+                """(?:show|list)(?: me)?(?: my| your)? memories|my memories)\??$""",
+        )
+        val MEMORY_FORGET = Regex("""^forget(?:\s+(?:that|about))?\s+(.+)$""", RegexOption.IGNORE_CASE)
+        val NOT_A_MEMORY = setOf("it", "that", "this", "about it", "it then", "that then", "everything i said", "what i said")
+
         /** This phone, or one of its parts ("my battery"). Used with [DEVICE_TOPIC]. */
         val DEVICE_SUBJECT = Regex(
             """\b(?:my|this)\s+(?:phone|device|mobile|smartphone|handset)\b|\bmy\s+(?:battery|ram|memory|storage|processor|cpu|gpu|chip(?:set)?|specs?|specifications)\b|\b(?:device|phone)\s+(?:specs?|specifications)\b""",

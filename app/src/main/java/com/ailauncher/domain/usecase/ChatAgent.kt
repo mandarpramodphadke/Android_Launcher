@@ -4,6 +4,7 @@ import com.ailauncher.di.ApplicationScope
 import com.ailauncher.domain.action.ActionExecutor
 import com.ailauncher.domain.action.ActionResult
 import com.ailauncher.domain.ai.LlmEngine
+import com.ailauncher.domain.ai.MemoryAction
 import com.ailauncher.domain.ai.ModelOutputParser
 import com.ailauncher.domain.ai.ParsedOutput
 import com.ailauncher.domain.ai.PromptJson
@@ -15,8 +16,10 @@ import com.ailauncher.domain.ai.RawToolCall
 import com.ailauncher.domain.ai.SystemPrompts
 import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.ai.ToolDefinitions
+import com.ailauncher.domain.ai.ToolNames
 import com.ailauncher.domain.ai.ToolRouter
 import com.ailauncher.domain.ai.ToolRouting
+import com.ailauncher.domain.memory.MemoryText
 import com.ailauncher.domain.model.AssistantFeatures
 import com.ailauncher.domain.model.AssistantProfile
 import com.ailauncher.domain.model.ChatMessage
@@ -27,15 +30,19 @@ import com.ailauncher.domain.model.GenerationParams
 import com.ailauncher.domain.model.GenerationStats
 import com.ailauncher.domain.model.InferenceMode
 import com.ailauncher.domain.model.LauncherSettings
-import com.ailauncher.domain.model.LlmPriority
 import com.ailauncher.domain.model.LlmException
+import com.ailauncher.domain.model.LlmPriority
 import com.ailauncher.domain.model.MessageStatus
+import com.ailauncher.domain.model.SpokenReplies
 import com.ailauncher.domain.model.StopReason
 import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.domain.repository.ChatRepository
 import com.ailauncher.domain.repository.FolderRepository
+import com.ailauncher.domain.repository.MemoryRepository
 import com.ailauncher.domain.repository.SettingsRepository
+import com.ailauncher.domain.speech.SpeechOutput
+import com.ailauncher.domain.speech.SpeechText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -43,7 +50,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -81,15 +91,47 @@ class ChatAgent @Inject constructor(
     private val folderRepository: FolderRepository,
     @ApplicationScope private val scope: CoroutineScope,
     private val features: AssistantFeatures = AssistantFeatures(),
+    /** ASSISTANT_MEMORY; null in tests that don't need it. */
+    private val memoryRepository: MemoryRepository? = null,
+    /** SPOKEN_REPLIES; null in tests that don't need it. */
+    private val speech: SpeechOutput? = null,
 ) {
     /** In-memory view of the reply being streamed; persisted to Room once complete. */
     data class StreamingReply(val messageId: Long, val output: ParsedOutput)
 
     private val toolRouter = ToolRouter()
-    private val quickCommands = QuickCommandParser(betterAnswers = features.betterAnswers)
+    private val quickCommands = QuickCommandParser(betterAnswers = features.betterAnswers, memory = features.memory)
+
+    /** Memory switched on in this build and in Settings; then [memories] is what the model sees. */
+    @Volatile
+    private var memoryOn = false
+
+    @Volatile
+    private var memories: List<String> = emptyList()
+
+    init {
+        val repository = memoryRepository
+        if (features.memory && repository != null) {
+            scope.launch {
+                combine(repository.memories, settingsRepository.launcherSettings.map { it.assistantMemory }.distinctUntilChanged()) { saved, on ->
+                    on to if (on) MemoryText.forPrompt(saved) else emptyList()
+                }.collect { (on, texts) ->
+                    memoryOn = on
+                    memories = texts
+                }
+            }
+        }
+    }
 
     /** The system prompt the model gets for [profile] (also shown in the chat's customize sheet). */
-    fun systemPrompt(profile: AssistantProfile): String = SystemPrompts.assistant(profile, features.betterAnswers)
+    fun systemPrompt(profile: AssistantProfile): String = SystemPrompts.withMemories(
+        SystemPrompts.assistant(profile, features.betterAnswers),
+        memories,
+        canSave = memoryOn && llm.contextSize >= ToolDefinitions.FULL_TOOLSET_MIN_CONTEXT,
+    )
+
+    /** The tool set: fixed per n_ctx, build and memory switch, so the KV-cached prefix stays valid. */
+    private fun tools() = ToolDefinitions.forContext(llm.contextSize, features.betterAnswers, memory = memoryOn)
     private val mutex = Mutex()
 
     @Volatile
@@ -105,19 +147,25 @@ class ChatAgent @Inject constructor(
     @Volatile
     private var profile = AssistantProfile()
 
+    /** @param spoken the user said [text] into the microphone (its reply may be read aloud). */
     fun send(
         text: String,
         mode: InferenceMode,
         conversationId: String = ChatRepository.DEFAULT_CONVERSATION,
+        spoken: Boolean = false,
     ): Job {
         val trimmed = text.trim()
+        // A new question interrupts the previous answer being read aloud.
+        speech?.stop()
         val job = scope.launch {
             mutex.withLock {
                 _busy.value = true
                 try {
                     chatRepository.insert(newMessage(conversationId, ChatRole.USER, trimmed, mode))
-                    val quick = quickCommands.parse(trimmed)
+                    // With memory switched off in Settings, "remember …" goes to the model like any other text.
+                    val quick = quickCommands.parse(trimmed)?.takeUnless { it is ToolCommand.ManageMemory && !memoryOn }
                     if (quick != null) handleQuickCommand(conversationId, quick, mode) else runAgentLoop(conversationId, mode)
+                    if (features.spokenReplies) readAloud(conversationId, spoken)
                 } finally {
                     _streaming.value = null
                     _busy.value = false
@@ -130,6 +178,7 @@ class ChatAgent @Inject constructor(
 
     /** Stops the current reply; the partial answer is kept and marked as stopped. */
     fun stop() {
+        speech?.stop()
         llm.stop()
         activeJob?.cancel()
     }
@@ -170,7 +219,7 @@ class ChatAgent @Inject constructor(
             profile = settingsRepository.launcherSettings.first().assistant
             val prefix = Qwen3PromptBuilder.build(
                 messages = listOf(PromptMessage(PromptMessage.Role.SYSTEM, systemPrompt(profile))),
-                tools = ToolDefinitions.forContext(llm.contextSize, features.betterAnswers),
+                tools = tools(),
                 addGenerationPrompt = false,
             )
             try {
@@ -294,7 +343,7 @@ class ChatAgent @Inject constructor(
         val parsed = ModelOutputParser.parse(raw.toString(), lenient = features.betterAnswers)
         val userText = history.lastOrNull { it.role == ChatRole.USER }?.content
         val invocations = parsed.toolCalls.map { call ->
-            when (val routing = toolRouter.route(call, userText)) {
+            when (val routing = toolRouter.route(call, userText).let(::withoutMemoryWhenOff)) {
                 is ToolRouting.Valid ->
                     invocationFor(routing.command, call.arguments, routing.summary, settings, resolved = toolRouter.canonicalArguments(routing.command))
                 is ToolRouting.Invalid -> ToolInvocation(
@@ -331,7 +380,7 @@ class ChatAgent @Inject constructor(
      */
     private fun madeUpToolCalls(parsed: ParsedOutput): List<ToolInvocation>? {
         if (parsed.answer.isNotBlank() || parsed.toolCalls.isEmpty()) return null
-        if (!parsed.toolCalls.all { (toolRouter.route(it) as? ToolRouting.Invalid)?.unknownTool == true }) return null
+        if (!parsed.toolCalls.all { (toolRouter.route(it).let(::withoutMemoryWhenOff) as? ToolRouting.Invalid)?.unknownTool == true }) return null
         return parsed.toolCalls.map { call ->
             ToolInvocation(
                 id = newId(),
@@ -343,6 +392,37 @@ class ChatAgent @Inject constructor(
             )
         }
     }
+
+    /**
+     * SPOKEN_REPLIES: reads the turn's answer aloud: after the user spoke, or always, as set in
+     * Settings. A card without text is read as its outcome ("Alarm set for 6:45 AM").
+     */
+    private suspend fun readAloud(conversationId: String, spoken: Boolean) {
+        val output = speech ?: return
+        when (settingsRepository.launcherSettings.first().spokenReplies) {
+            SpokenReplies.OFF -> return
+            SpokenReplies.AFTER_VOICE -> if (!spoken) return
+            SpokenReplies.ALWAYS -> Unit
+        }
+        val reply = chatRepository.messages(conversationId, READ_ALOUD_LOOKBACK).lastOrNull() ?: return
+        if (reply.role != ChatRole.ASSISTANT || reply.status != MessageStatus.COMPLETE) return
+        val text = reply.content.ifBlank { reply.toolCalls.lastOrNull()?.let(::spokenOutcome).orEmpty() }
+        SpeechText.from(text).takeIf { it.isNotBlank() }?.let(output::speak)
+    }
+
+    private fun spokenOutcome(call: ToolInvocation): String? = when (call.status) {
+        ToolStatus.SUCCEEDED, ToolStatus.FAILED -> call.resultMessage?.takeIf { it.isNotBlank() } ?: call.summary
+        ToolStatus.AWAITING_CONFIRMATION -> "${call.summary}. Tap Confirm to go ahead."
+        else -> null
+    }
+
+    /** The model may still name manage_memory after memory was switched off in Settings. */
+    private fun withoutMemoryWhenOff(routing: ToolRouting): ToolRouting =
+        if (routing is ToolRouting.Valid && routing.command is ToolCommand.ManageMemory && !memoryOn) {
+            ToolRouting.Invalid(ToolNames.MANAGE_MEMORY, "Memory is switched off in Settings", unknownTool = true)
+        } else {
+            routing
+        }
 
     private suspend fun runInvocation(messageId: Long, invocation: ToolInvocation): ToolInvocation {
         val running = invocation.copy(status = ToolStatus.RUNNING)
@@ -374,7 +454,10 @@ class ChatAgent @Inject constructor(
         settings: LauncherSettings,
         resolved: JsonObject = toolRouter.canonicalArguments(command),
     ): ToolInvocation {
-        val autoRun = command.isReadOnly || (command is ToolCommand.LaunchApp && settings.autoConfirmAppLaunch)
+        val autoRun = command.isReadOnly ||
+            (command is ToolCommand.LaunchApp && settings.autoConfirmAppLaunch) ||
+            // Saving a memory is what the user just asked for, shown on the card and easy to undo.
+            (command is ToolCommand.ManageMemory && command.action == MemoryAction.SAVE)
         return ToolInvocation(
             id = newId(),
             name = command.toolName,
@@ -422,7 +505,7 @@ class ChatAgent @Inject constructor(
             }
         }
         // The tool set depends only on n_ctx, so it is identical across turns (prefix cache friendly).
-        return Qwen3PromptBuilder.build(messages, ToolDefinitions.forContext(llm.contextSize, features.betterAnswers), enableThinking = mode == InferenceMode.REASONING)
+        return Qwen3PromptBuilder.build(messages, tools(), enableThinking = mode == InferenceMode.REASONING)
     }
 
     private fun renderUserTurn(m: ChatMessage, folderContext: String? = null): String {
@@ -526,5 +609,8 @@ class ChatAgent @Inject constructor(
     private companion object {
         const val MAX_TOOL_ROUNDS = 3
         const val HISTORY_LIMIT = 40
+
+        /** The turn's answer is the newest message. */
+        const val READ_ALOUD_LOOKBACK = 1
     }
 }

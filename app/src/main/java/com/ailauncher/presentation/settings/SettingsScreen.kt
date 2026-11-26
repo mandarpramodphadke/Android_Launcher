@@ -113,6 +113,8 @@ fun SettingsScreen(
 
     ThemedSystemBarIcons()
     val iconPacks by viewModel.iconPacks.collectAsStateWithLifecycle()
+    val memories by viewModel.memories.collectAsStateWithLifecycle()
+    var showMemories by remember { mutableStateOf(false) }
     OnResume {
         viewModel.refreshSystemStatus()
         viewModel.refreshIconPacks()
@@ -415,6 +417,7 @@ fun SettingsScreen(
                     viewModel.updateSettings { it.copy(autoConfirmAppLaunch = on) }
                 }
             }
+            assistantExtrasSettings(state.settings, memories, onUpdate = viewModel::updateSettings, onShowMemories = { showMemories = true })
             item {
                 SwitchSetting("Save reminders to calendar", "Otherwise reminders are local notifications", state.settings.saveRemindersToCalendar) { on ->
                     viewModel.updateSettings { it.copy(saveRemindersToCalendar = on) }
@@ -547,6 +550,9 @@ fun SettingsScreen(
         )
     }
 
+    if (showMemories) {
+        MemoriesSheet(memories, onDelete = viewModel::deleteMemory, onClear = viewModel::clearMemories, onDismiss = { showMemories = false })
+    }
     if (showSearchFolders) {
         SearchFoldersDialog(
             folders = state.searchFolders,

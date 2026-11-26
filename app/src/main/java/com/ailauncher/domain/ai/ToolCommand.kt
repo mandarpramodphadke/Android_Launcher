@@ -58,6 +58,15 @@ sealed interface ToolCommand {
         override val isReadOnly get() = true
     }
 
+    /**
+     * Things the user asked the assistant to remember (ASSISTANT_MEMORY). Listing is read-only;
+     * saving runs at once (it is what the user just asked for, and easy to undo); forgetting asks.
+     */
+    data class ManageMemory(val action: MemoryAction, val text: String? = null) : ToolCommand {
+        override val toolName get() = ToolNames.MANAGE_MEMORY
+        override val isReadOnly get() = action == MemoryAction.LIST
+    }
+
     /** [inactiveDays] null = the user's default threshold from Settings. */
     data class ListUnusedApps(val inactiveDays: Int?) : ToolCommand {
         override val toolName get() = ToolNames.LIST_UNUSED_APPS
@@ -134,6 +143,19 @@ enum class TodoAction(val wireName: String) {
     }
 }
 
+enum class MemoryAction(val wireName: String) {
+    SAVE("save"), LIST("list"), FORGET("forget");
+
+    companion object {
+        fun fromWire(value: String?): MemoryAction? = when (value?.trim()?.lowercase()?.replace(' ', '_')) {
+            "save", "add", "remember", "store", "keep", "note", "create" -> SAVE
+            "list", "show", "get", "read", "view", "all", "recall" -> LIST
+            "forget", "delete", "remove", "clear", "erase" -> FORGET
+            else -> null
+        }
+    }
+}
+
 enum class PlannerAction(val wireName: String) {
     SCHEDULE_BLOCK("schedule_block"), RESCHEDULE("reschedule"), REMOVE_BLOCK("remove_block"), GET_DAY_PLAN("get_day_plan");
 
@@ -197,4 +219,5 @@ object ToolNames {
     const val SUMMARIZE_NOTIFICATIONS = "summarize_notifications"
     const val CONTACT_ACTION = "contact_action"
     const val GET_DEVICE_INFO = "get_device_info"
+    const val MANAGE_MEMORY = "manage_memory"
 }

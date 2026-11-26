@@ -41,12 +41,18 @@ object ToolDefinitions {
      * The tool set for a context window. Fixed per n_ctx (and build), so the KV-cached prefix stays
      * valid. [deviceInfo] adds get_device_info (the build's BETTER_ANSWERS switch).
      */
-    fun forContext(contextSize: Int, deviceInfo: Boolean = false): List<JsonObject> {
-        val base = if (contextSize >= FULL_TOOLSET_MIN_CONTEXT) all else compact
-        if (!deviceInfo) return base
-        // Right after get_today_agenda, the other "tell me about" tool.
-        val at = base.indexOf(getTodayAgenda) + 1
-        return base.take(at) + getDeviceInfo + base.drop(at)
+    fun forContext(contextSize: Int, deviceInfo: Boolean = false, memory: Boolean = false): List<JsonObject> {
+        val full = contextSize >= FULL_TOOLSET_MIN_CONTEXT
+        var tools = if (full) all else compact
+        if (deviceInfo) {
+            // Right after get_today_agenda, the other "tell me about" tool.
+            val at = tools.indexOf(getTodayAgenda) + 1
+            tools = tools.take(at) + getDeviceInfo + tools.drop(at)
+        }
+        // [memory] (ASSISTANT_MEMORY) adds manage_memory to the full set; at 2048 tokens the quick
+        // commands ("remember …", "forget …") still work.
+        if (memory && full) tools = tools + manageMemory
+        return tools
     }
 
     private val setAlarm = function(
@@ -115,6 +121,15 @@ object ToolDefinitions {
         description = "Get today's events, reminders, alarm, planned blocks and urgent to-dos. Use for questions about the day.",
         required = emptyList(),
     ) {}
+
+    private val manageMemory = function(
+        name = ToolNames.MANAGE_MEMORY,
+        description = "Save, list or forget facts about the user, only when they ask you to remember or forget something.",
+        required = listOf("action"),
+    ) {
+        enumProperty("action", MemoryAction.entries.map { it.wireName })
+        property("text", "string", "The fact in the user's words, or what to forget.")
+    }
 
     private val getDeviceInfo = function(
         name = ToolNames.GET_DEVICE_INFO,

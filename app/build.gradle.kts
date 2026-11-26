@@ -69,8 +69,8 @@ android {
         applicationId = "com.ailauncher"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 9
-        versionName = "1.7.0"
+        versionCode = 10
+        versionName = "1.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -123,6 +123,10 @@ android {
     // fonts, battery by the date), BLUR_EFFECTS (blur behind the drawer and sheets, wallpaper
     // parallax), MEDIA_CONTROLS (what's playing on the home screen) and INSTANT_SEARCH (contacts,
     // settings, to-dos, files, sums and unit conversions in the command bar).
+    // 1.8: ASSISTANT_MEMORY (things the user asks the assistant to remember), SPOKEN_REPLIES (replies
+    // read aloud with the phone's text-to-speech), CUSTOM_GESTURES (choose what swipe down, double-tap
+    // and a two-finger swipe do), DOCK_AND_GRID (dock looks, command bar in the dock, home rows,
+    // app name size and font).
     flavorDimensions += "distribution"
     productFlavors {
         create("full") {
@@ -143,6 +147,10 @@ android {
             buildConfigField("boolean", "BLUR_EFFECTS", "true")
             buildConfigField("boolean", "MEDIA_CONTROLS", "true")
             buildConfigField("boolean", "INSTANT_SEARCH", "true")
+            buildConfigField("boolean", "ASSISTANT_MEMORY", "true")
+            buildConfigField("boolean", "SPOKEN_REPLIES", "true")
+            buildConfigField("boolean", "CUSTOM_GESTURES", "true")
+            buildConfigField("boolean", "DOCK_AND_GRID", "true")
         }
         create("play") {
             dimension = "distribution"
@@ -164,6 +172,10 @@ android {
             buildConfigField("boolean", "BLUR_EFFECTS", "false")
             buildConfigField("boolean", "MEDIA_CONTROLS", "false")
             buildConfigField("boolean", "INSTANT_SEARCH", "false")
+            buildConfigField("boolean", "ASSISTANT_MEMORY", "false")
+            buildConfigField("boolean", "SPOKEN_REPLIES", "false")
+            buildConfigField("boolean", "CUSTOM_GESTURES", "false")
+            buildConfigField("boolean", "DOCK_AND_GRID", "false")
         }
     }
 

@@ -146,3 +146,12 @@ data class FeedEventEntity(
     val endMillis: Long,
     val allDay: Boolean,
 )
+
+/** v5: something the user asked the assistant to remember (ASSISTANT_MEMORY). */
+@Entity(tableName = "memories")
+data class MemoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val text: String,
+    val createdAt: Long,
+)
+

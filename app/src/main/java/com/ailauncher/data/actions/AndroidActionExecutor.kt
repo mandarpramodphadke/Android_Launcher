@@ -9,6 +9,7 @@ import com.ailauncher.domain.action.ActionResult
 import com.ailauncher.domain.action.LauncherDestination
 import com.ailauncher.domain.action.LauncherNavigator
 import com.ailauncher.domain.ai.DeviceSetting
+import com.ailauncher.domain.ai.MemoryAction
 import com.ailauncher.domain.ai.ToolCommand
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.CategorySource
@@ -17,6 +18,7 @@ import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.repository.AppRepository
 import com.ailauncher.domain.repository.CategorizationScheduler
 import com.ailauncher.domain.repository.FolderRepository
+import com.ailauncher.domain.repository.MemoryRepository
 import com.ailauncher.domain.repository.ModelRepository
 import com.ailauncher.domain.repository.ReminderRepository
 import com.ailauncher.domain.repository.ReminderScheduleResult
@@ -57,6 +59,7 @@ class AndroidActionExecutor @Inject constructor(
     private val systemInfo: SystemInfoRepository,
     private val models: ModelRepository,
     private val settings: SettingsRepository,
+    private val memories: MemoryRepository,
 ) : ActionExecutor {
 
     override suspend fun execute(command: ToolCommand): ActionResult = when (command) {
@@ -68,6 +71,7 @@ class AndroidActionExecutor @Inject constructor(
         ToolCommand.SortApps -> sortApps()
         ToolCommand.GetTodayAgenda -> agenda()
         ToolCommand.GetDeviceInfo -> deviceInfo()
+        is ToolCommand.ManageMemory -> memory(command)
         is ToolCommand.ListUnusedApps -> launcherTools.listUnusedApps(command)
         is ToolCommand.FindLargestFiles -> launcherTools.findLargestFiles(command)
         is ToolCommand.QueryFilesByActivity -> launcherTools.queryFiles(command)
@@ -260,6 +264,37 @@ class AndroidActionExecutor @Inject constructor(
             battery?.levelPercent?.let { "battery $it%" },
         ).joinToString(" · ")
         return ActionResult.ok(message, data)
+    }
+
+    /** ASSISTANT_MEMORY: what the user asked to be remembered, on the phone only. */
+    private suspend fun memory(command: ToolCommand.ManageMemory): ActionResult = when (command.action) {
+        MemoryAction.SAVE -> {
+            val saved = command.text?.let { memories.remember(it) }
+            if (saved == null) {
+                ActionResult.fail("There was nothing to remember")
+            } else {
+                ActionResult.ok("Remembered: ${saved.text}", buildJsonObject { put("saved", saved.text) })
+            }
+        }
+        MemoryAction.LIST -> {
+            val all = memories.all()
+            val message = when (all.size) {
+                0 -> "Nothing saved yet"
+                1 -> "1 thing remembered"
+                else -> "${all.size} things remembered"
+            }
+            ActionResult.ok(message, buildJsonObject { putJsonArray("memories") { all.forEach { add(it.text) } } })
+        }
+        MemoryAction.FORGET -> {
+            val query = command.text.orEmpty()
+            val gone = memories.forget(query)
+            if (gone.isEmpty()) {
+                ActionResult.fail("Nothing saved matches \"$query\"")
+            } else {
+                val message = if (gone.size == 1) "Forgot: ${gone.single().text}" else "Forgot ${gone.size} things"
+                ActionResult.ok(message, buildJsonObject { putJsonArray("forgotten") { gone.forEach { add(it.text) } } })
+            }
+        }
     }
 
     private suspend fun start(intent: Intent): Boolean = withContext(Dispatchers.Main) {

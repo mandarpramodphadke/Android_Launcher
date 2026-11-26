@@ -62,6 +62,8 @@ internal object SettingsKeys {
     val WALLPAPER_PARALLAX = booleanPreferencesKey("wallpaper_parallax")
     val MEDIA_CONTROLS = booleanPreferencesKey("media_controls")
     val INSTANT_SEARCH = booleanPreferencesKey("instant_search")
+    val ASSISTANT_MEMORY = booleanPreferencesKey("assistant_memory")
+    val SPOKEN_REPLIES = stringPreferencesKey("spoken_replies")
 
     val CONTEXT_SIZE = intPreferencesKey("model_context_size")
     val THREADS = intPreferencesKey("model_threads")
@@ -126,6 +128,8 @@ internal fun Preferences.toLauncherSettings(): LauncherSettings {
         wallpaperParallax = this[SettingsKeys.WALLPAPER_PARALLAX] ?: defaults.wallpaperParallax,
         mediaControls = this[SettingsKeys.MEDIA_CONTROLS] ?: defaults.mediaControls,
         instantSearch = this[SettingsKeys.INSTANT_SEARCH] ?: defaults.instantSearch,
+        assistantMemory = this[SettingsKeys.ASSISTANT_MEMORY] ?: defaults.assistantMemory,
+        spokenReplies = enumOrDefault(this[SettingsKeys.SPOKEN_REPLIES], defaults.spokenReplies),
     )
 }
 
@@ -178,6 +182,8 @@ internal fun MutablePreferences.writeLauncherSettings(s: LauncherSettings) {
     this[SettingsKeys.WALLPAPER_PARALLAX] = s.wallpaperParallax
     this[SettingsKeys.MEDIA_CONTROLS] = s.mediaControls
     this[SettingsKeys.INSTANT_SEARCH] = s.instantSearch
+    this[SettingsKeys.ASSISTANT_MEMORY] = s.assistantMemory
+    this[SettingsKeys.SPOKEN_REPLIES] = s.spokenReplies.name
 }
 
 internal fun Preferences.toModelConfig(): ModelConfig {

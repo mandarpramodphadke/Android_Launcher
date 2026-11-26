@@ -7,6 +7,7 @@ import com.ailauncher.domain.model.CategorizationProgress
 import com.ailauncher.domain.model.CategorySource
 import com.ailauncher.domain.model.ChatMessage
 import com.ailauncher.domain.model.LauncherSettings
+import com.ailauncher.domain.model.Memory
 import com.ailauncher.domain.model.ModelConfig
 import com.ailauncher.domain.model.ModelFileState
 import com.ailauncher.domain.model.ModelOption
@@ -165,3 +166,19 @@ interface BackupRepository {
     suspend fun uploadToCloud(passphrase: CharArray): Result<Long>
     suspend fun restoreFromCloud(passphrase: CharArray): Result<BackupSummary>
 }
+
+/** Things the user asked the assistant to remember (ASSISTANT_MEMORY). Kept on the phone only. */
+interface MemoryRepository {
+    /** Newest first. */
+    val memories: Flow<List<Memory>>
+    suspend fun all(): List<Memory>
+
+    /** Saves [text] (cleaned; an existing identical memory is kept instead); null if it is empty. */
+    suspend fun remember(text: String): Memory?
+    suspend fun delete(id: Long)
+
+    /** Deletes the memories [query] is about (all of them for "everything"); returns what was deleted. */
+    suspend fun forget(query: String): List<Memory>
+    suspend fun clear()
+}
+

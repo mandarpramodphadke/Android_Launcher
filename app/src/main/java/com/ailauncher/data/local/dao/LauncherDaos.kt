@@ -9,6 +9,7 @@ import com.ailauncher.data.local.entity.CalendarFeedEntity
 import com.ailauncher.data.local.entity.CustomFolderEntity
 import com.ailauncher.data.local.entity.FeedEventEntity
 import com.ailauncher.data.local.entity.HomeItemEntity
+import com.ailauncher.data.local.entity.MemoryEntity
 import com.ailauncher.data.local.entity.NotificationDigestEntity
 import com.ailauncher.data.local.entity.PlannerBlockEntity
 import com.ailauncher.data.local.entity.RecentFileAccessEntity
@@ -274,3 +275,29 @@ interface CalendarFeedDao {
     @Query("SELECT * FROM feed_events WHERE startMillis < :end AND endMillis > :start ORDER BY startMillis LIMIT :limit")
     suspend fun eventsBetween(start: Long, end: Long, limit: Int = 200): List<FeedEventEntity>
 }
+
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memories ORDER BY createdAt DESC, id DESC")
+    fun observe(): Flow<List<MemoryEntity>>
+
+    @Query("SELECT * FROM memories ORDER BY createdAt DESC, id DESC")
+    suspend fun all(): List<MemoryEntity>
+
+    @Query("SELECT * FROM memories WHERE text = :text COLLATE NOCASE LIMIT 1")
+    suspend fun findByText(text: String): MemoryEntity?
+
+    @Insert
+    suspend fun insert(memory: MemoryEntity): Long
+
+    @Query("DELETE FROM memories WHERE id IN (:ids)")
+    suspend fun delete(ids: List<Long>)
+
+    @Query("DELETE FROM memories")
+    suspend fun clear()
+
+    /** Keeps the newest [keep] memories. */
+    @Query("DELETE FROM memories WHERE id NOT IN (SELECT id FROM memories ORDER BY createdAt DESC, id DESC LIMIT :keep)")
+    suspend fun trim(keep: Int)
+}
+

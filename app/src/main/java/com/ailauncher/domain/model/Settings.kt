@@ -69,7 +69,14 @@ enum class ClockFont { DEFAULT, CONDENSED, SERIF, MONO, BOLD }
 data class AssistantFeatures(
     /** The general-knowledge system prompt and the get_device_info tool. */
     val betterAnswers: Boolean = false,
+    /** Memories the user asks for: the manage_memory tool, quick commands and the prompt section. */
+    val memory: Boolean = false,
+    /** Replies read aloud with the phone's text-to-speech. */
+    val spokenReplies: Boolean = false,
 )
+
+/** When the assistant reads its replies aloud (SPOKEN_REPLIES). */
+enum class SpokenReplies { OFF, AFTER_VOICE, ALWAYS }
 
 /** What is drawn behind the assistant's messages. */
 @Serializable
@@ -165,6 +172,10 @@ data class LauncherSettings(
     val mediaControls: Boolean = true,
     /** Contacts, settings, to-dos, files, sums and unit conversions as you type in the command bar. */
     val instantSearch: Boolean = true,
+    /** The assistant saves what the user asks it to remember, and uses it in its answers. */
+    val assistantMemory: Boolean = true,
+    /** Read replies aloud: never, after the user spoke, or always. */
+    val spokenReplies: SpokenReplies = SpokenReplies.AFTER_VOICE,
 ) {
     companion object {
         const val DEFAULT_CHAT_DIM = 0.55f

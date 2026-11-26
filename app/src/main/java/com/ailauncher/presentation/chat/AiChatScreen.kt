@@ -1,25 +1,16 @@
 package com.ailauncher.presentation.chat
 
-import androidx.compose.foundation.background
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import com.ailauncher.domain.model.ChatBackground
-import java.io.File
-import com.ailauncher.BuildConfig
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -55,9 +46,11 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.ShortText
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -65,12 +58,13 @@ import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.NotificationAdd
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.OutlinedFlag
@@ -80,6 +74,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.ToggleOn
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewTimeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -88,6 +83,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -105,6 +101,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -114,7 +111,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
@@ -125,10 +124,15 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import com.ailauncher.BuildConfig
 import com.ailauncher.data.share.SharedPayload
 import com.ailauncher.domain.ai.SystemPrompts
 import com.ailauncher.domain.ai.ToolNames
 import com.ailauncher.domain.clipboard.ClipAction
+import com.ailauncher.domain.model.ChatBackground
 import com.ailauncher.domain.model.ChatRole
 import com.ailauncher.domain.model.EngineState
 import com.ailauncher.domain.model.InferenceMode
@@ -138,18 +142,19 @@ import com.ailauncher.domain.model.ToolInvocation
 import com.ailauncher.domain.model.ToolStatus
 import com.ailauncher.presentation.components.EngineDetailsSheet
 import com.ailauncher.presentation.components.EngineStatusChip
-import com.ailauncher.presentation.components.SwipeDirection
-import com.ailauncher.presentation.components.horizontalSwipe
-import com.ailauncher.presentation.components.rememberSwipeAction
 import com.ailauncher.presentation.components.LauncherTextField
 import com.ailauncher.presentation.components.MarkdownText
 import com.ailauncher.presentation.components.NotificationDigestDisclosure
 import com.ailauncher.presentation.components.SpecialAccess
+import com.ailauncher.presentation.components.SwipeDirection
 import com.ailauncher.presentation.components.ThemedSystemBarIcons
+import com.ailauncher.presentation.components.horizontalSwipe
+import com.ailauncher.presentation.components.rememberSwipeAction
 import com.ailauncher.presentation.components.sharedCommandBar
 import com.ailauncher.presentation.planner.PlannerTab
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
 
 private val QUICK_ACTIONS = listOf(
     "Summarize my day",
@@ -194,6 +199,18 @@ fun AiChatScreen(
     val assistantName = if (customizable) state.assistant.displayName else SystemPrompts.ASSISTANT_NAME
     val background = if (customizable) state.background else ChatBackground.DEFAULT
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // SPOKEN_REPLIES: talk to the assistant from the chat; replies can be read aloud.
+    val speaking by viewModel.speaking.collectAsStateWithLifecycle()
+    val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.takeIf { it.isNotBlank() }?.let(viewModel::sendSpoken)
+    }
+    val voiceIntent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Ask $assistantName")
+    }
+    val voiceAvailable = remember { BuildConfig.SPOKEN_REPLIES && voiceIntent.resolveActivity(context.packageManager) != null }
 
     if (!asPanel) ThemedSystemBarIcons()
     LaunchedEffect(viewModel) { viewModel.notices.collect { snackbar.showSnackbar(it) } }
@@ -331,6 +348,9 @@ fun AiChatScreen(
                     }
                 },
                 actions = {
+                    if (speaking) {
+                        IconButton(onClick = viewModel::stopSpeaking) { Icon(Icons.AutoMirrored.Rounded.VolumeOff, "Stop reading aloud") }
+                    }
                     IconButton(onClick = { confirmClear = true }, enabled = state.messages.isNotEmpty()) {
                         Icon(Icons.Rounded.DeleteSweep, "Clear chat")
                     }
@@ -356,6 +376,7 @@ fun AiChatScreen(
                 compactThinking = BuildConfig.CHAT_CUSTOMIZATION,
                 placeholder = "Message $assistantName…",
                 translucent = veiled,
+                onVoice = if (voiceAvailable) ({ runCatching { voiceLauncher.launch(voiceIntent) } }) else null,
             )
         },
     ) { padding ->
@@ -499,6 +520,8 @@ internal fun ChatInput(
     placeholder: String = "Message ${SystemPrompts.ASSISTANT_NAME}…",
     /** Under a chat background picture, the bar becomes translucent. */
     translucent: Boolean = false,
+    /** SPOKEN_REPLIES: a microphone takes the send button's place while the box is empty. */
+    onVoice: (() -> Unit)? = null,
 ) {
     Surface(
         tonalElevation = 3.dp,
@@ -534,10 +557,10 @@ internal fun ChatInput(
                     modifier = Modifier.weight(1f).sharedCommandBar(),
                 )
                 Spacer(Modifier.width(8.dp))
-                if (busy) {
-                    FilledIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop generating") }
-                } else {
-                    FilledIconButton(onClick = onSend, enabled = state.text.isNotBlank()) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
+                when {
+                    busy -> FilledIconButton(onClick = onStop) { Icon(Icons.Rounded.Stop, "Stop generating") }
+                    onVoice != null && state.text.isBlank() -> FilledTonalIconButton(onClick = onVoice) { Icon(Icons.Rounded.Mic, "Speak to the assistant") }
+                    else -> FilledIconButton(onClick = onSend, enabled = state.text.isNotBlank()) { Icon(Icons.AutoMirrored.Rounded.Send, "Send") }
                 }
             }
         }
@@ -886,6 +909,7 @@ private fun toolPresentation(name: String): Pair<ImageVector, String> = when (na
     ToolNames.SORT_APPS -> Icons.Rounded.AutoAwesome to "Organize apps"
     ToolNames.GET_TODAY_AGENDA -> Icons.Rounded.CalendarToday to "Today's agenda"
     ToolNames.GET_DEVICE_INFO -> Icons.Rounded.Memory to "This phone"
+    ToolNames.MANAGE_MEMORY -> Icons.Rounded.Bookmark to "Memory"
     ToolNames.LIST_UNUSED_APPS -> Icons.Rounded.Apps to "Unused apps"
     ToolNames.FIND_LARGEST_FILES -> Icons.Rounded.Storage to "Largest files"
     ToolNames.QUERY_FILES_BY_ACTIVITY -> Icons.Rounded.FolderOpen to "Files"

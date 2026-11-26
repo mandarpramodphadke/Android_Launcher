@@ -14,7 +14,11 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.runtime.snapshotFlow
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
+import com.ailauncher.BuildConfig
+import com.ailauncher.data.media.NowPlaying
+import com.ailauncher.data.media.NowPlayingRepository
 import com.ailauncher.data.packages.AppLauncher
+import com.ailauncher.data.system.BatteryMonitor
 import com.ailauncher.data.system.LockMethod
 import com.ailauncher.data.system.SystemGestureController
 import com.ailauncher.data.widgets.LauncherWidgetHost
@@ -25,17 +29,19 @@ import com.ailauncher.domain.home.DropAction
 import com.ailauncher.domain.home.FolderNaming
 import com.ailauncher.domain.home.GridSpec
 import com.ailauncher.domain.home.HomeGridPlanner
-import com.ailauncher.BuildConfig
 import com.ailauncher.domain.model.AppInfo
 import com.ailauncher.domain.model.AssistantProfile
+import com.ailauncher.domain.model.BatteryGlance
+import com.ailauncher.domain.model.ContactMatch
 import com.ailauncher.domain.model.CustomFolder
 import com.ailauncher.domain.model.DockEntry
+import com.ailauncher.domain.model.FileEntry
 import com.ailauncher.domain.model.FolderAccent
 import com.ailauncher.domain.model.HomeItem
 import com.ailauncher.domain.model.HomeItemContent
+import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.LauncherWidgetConfig
 import com.ailauncher.domain.model.LauncherWidgetKind
-import com.ailauncher.domain.model.LauncherSettings
 import com.ailauncher.domain.model.PlannerBlock
 import com.ailauncher.domain.model.SmartExtraction
 import com.ailauncher.domain.model.SmartPill
@@ -43,7 +49,9 @@ import com.ailauncher.domain.model.TodoItem
 import com.ailauncher.domain.model.TodoPriority
 import com.ailauncher.domain.model.UpcomingEvent
 import com.ailauncher.domain.repository.AppRepository
+import com.ailauncher.domain.repository.ContactRepository
 import com.ailauncher.domain.repository.DockRepository
+import com.ailauncher.domain.repository.FileRepository
 import com.ailauncher.domain.repository.FolderRepository
 import com.ailauncher.domain.repository.HomeLayoutRepository
 import com.ailauncher.domain.repository.NotificationDigestRepository
@@ -53,6 +61,11 @@ import com.ailauncher.domain.repository.ShortcutRepository
 import com.ailauncher.domain.repository.TodoRepository
 import com.ailauncher.domain.repository.UpcomingEventsProvider
 import com.ailauncher.domain.search.FuzzyMatcher
+import com.ailauncher.domain.search.QuickAnswer
+import com.ailauncher.domain.search.QuickAnswers
+import com.ailauncher.domain.search.SettingsShortcut
+import com.ailauncher.domain.search.SettingsShortcuts
+import com.ailauncher.domain.speech.VoicePrompts
 import com.ailauncher.presentation.components.HomeGridMetrics
 import com.ailauncher.presentation.components.LaunchRequest
 import com.ailauncher.presentation.components.LauncherAppsViewModel
@@ -68,31 +81,19 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZonedDateTime
 import javax.inject.Inject
-import com.ailauncher.data.media.NowPlaying
-import com.ailauncher.data.media.NowPlayingRepository
-import com.ailauncher.data.system.BatteryMonitor
-import com.ailauncher.domain.model.BatteryGlance
-import com.ailauncher.domain.model.ContactMatch
-import com.ailauncher.domain.model.FileEntry
-import com.ailauncher.domain.repository.ContactRepository
-import com.ailauncher.domain.repository.FileRepository
-import com.ailauncher.domain.search.QuickAnswer
-import com.ailauncher.domain.search.QuickAnswers
-import com.ailauncher.domain.search.SettingsShortcut
-import com.ailauncher.domain.search.SettingsShortcuts
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.mapLatest
 
 /** The home pages' contents, the dock and everything drawn over the wallpaper. */
 data class HomeUiState(
@@ -175,7 +176,11 @@ class HomeViewModel @Inject constructor(
     private val contacts: ContactRepository,
     private val files: FileRepository,
     battery: BatteryMonitor,
+    private val voicePrompts: VoicePrompts,
 ) : LauncherAppsViewModel(appRepository, appLauncher, dockRepository, homeLayout, folderRepository, shortcutRepository) {
+
+    /** The command bar's microphone: the chat then knows this message was spoken (SPOKEN_REPLIES). */
+    fun markSpoken(text: String) = voicePrompts.mark(text)
 
     /** Emits on every minute boundary so the clock flips exactly on time. */
     private val clock: Flow<ZonedDateTime> = flow {

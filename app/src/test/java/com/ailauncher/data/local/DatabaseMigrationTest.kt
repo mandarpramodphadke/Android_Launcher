@@ -12,6 +12,8 @@ import com.ailauncher.data.local.entity.HomeItemEntity
 import com.ailauncher.data.local.entity.NotificationDigestEntity
 import com.ailauncher.data.local.entity.PlannerBlockEntity
 import com.ailauncher.data.local.entity.TodoItemEntity
+import com.ailauncher.data.memory.MemoryRepositoryImpl
+import com.ailauncher.domain.model.Memory
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -148,6 +150,42 @@ class DatabaseMigrationTest {
             feeds.delete(id)
             assertThat(feeds.eventsBetween(0, Long.MAX_VALUE)).isEmpty()
             assertThat(feeds.all()).isEmpty()
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun migratesVersion4ToVersion5AddingMemories() = runTest {
+        dbFile.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+            createTables(db, 4)
+            db.execSQL(
+                "INSERT INTO calendar_feeds (id, name, url, colorArgb, lastSyncedAt, lastError, eventCount, createdAt) " +
+                    "VALUES (3, 'School', 'https://example.com/school.ics', 0, NULL, NULL, 0, 1)",
+            )
+            db.version = 4
+        }
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbFile.absolutePath)
+            .addMigrations(*AppDatabase.MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            assertThat(db.calendarFeedDao().get(3)?.name).isEqualTo("School")
+            val memories = MemoryRepositoryImpl(db.memoryDao())
+            assertThat(memories.remember("  my car is parked on level 3. ")?.text).isEqualTo("My car is parked on level 3")
+            memories.remember("Wife's birthday is 4 March")
+            // The same memory is kept once, whatever the case.
+            memories.remember("MY CAR IS PARKED ON LEVEL 3")
+            assertThat(memories.all().map { it.text }).containsExactly("Wife's birthday is 4 March", "My car is parked on level 3")
+            assertThat(memories.forget("my car").map { it.text }).containsExactly("My car is parked on level 3")
+            assertThat(memories.forget("the dentist")).isEmpty()
+            assertThat(memories.forget("everything").map { it.text }).containsExactly("Wife's birthday is 4 March")
+            assertThat(memories.all()).isEmpty()
+            // Only the newest MAX_COUNT are kept.
+            repeat(Memory.MAX_COUNT + 3) { memories.remember("Fact number $it") }
+            assertThat(memories.all()).hasSize(Memory.MAX_COUNT)
+            assertThat(memories.all().first().text).isEqualTo("Fact number ${Memory.MAX_COUNT + 2}")
         } finally {
             db.close()
         }

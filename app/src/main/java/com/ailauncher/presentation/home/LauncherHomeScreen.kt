@@ -379,7 +379,10 @@ fun LauncherHomeScreen(
     val currentOpenChat by rememberUpdatedState(openChat)
     val voiceLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { spoken ->
-            if (spoken.isNotBlank()) currentOpenChat(spoken)
+            if (spoken.isNotBlank()) {
+                viewModel.markSpoken(spoken)
+                currentOpenChat(spoken)
+            }
         }
     }
     val voiceIntent = remember {

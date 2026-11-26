@@ -22,5 +22,9 @@
         <intent>
             <action android:name="app.lawnchair.icons.THEMED_ICON" />
         </intent>
+        <!-- SPOKEN_REPLIES: the phone's text-to-speech engine (offline voices only, see AndroidSpeechOutput). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 </manifest>

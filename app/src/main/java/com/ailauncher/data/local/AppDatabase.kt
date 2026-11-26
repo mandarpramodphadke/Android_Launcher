@@ -11,6 +11,7 @@ import com.ailauncher.data.local.dao.ChatDao
 import com.ailauncher.data.local.dao.FileAccessDao
 import com.ailauncher.data.local.dao.FolderDao
 import com.ailauncher.data.local.dao.HomeItemDao
+import com.ailauncher.data.local.dao.MemoryDao
 import com.ailauncher.data.local.dao.NotificationDao
 import com.ailauncher.data.local.dao.PlannerDao
 import com.ailauncher.data.local.dao.ReminderDao
@@ -20,10 +21,11 @@ import com.ailauncher.data.local.entity.AppCategoryEntity
 import com.ailauncher.data.local.entity.AppEntity
 import com.ailauncher.data.local.entity.AppPrefsEntity
 import com.ailauncher.data.local.entity.CalendarFeedEntity
-import com.ailauncher.data.local.entity.FeedEventEntity
 import com.ailauncher.data.local.entity.ChatMessageEntity
 import com.ailauncher.data.local.entity.CustomFolderEntity
+import com.ailauncher.data.local.entity.FeedEventEntity
 import com.ailauncher.data.local.entity.HomeItemEntity
+import com.ailauncher.data.local.entity.MemoryEntity
 import com.ailauncher.data.local.entity.NotificationDigestEntity
 import com.ailauncher.data.local.entity.PlannerBlockEntity
 import com.ailauncher.data.local.entity.RecentFileAccessEntity
@@ -48,8 +50,10 @@ import com.ailauncher.data.local.entity.TodoItemEntity
         // v4
         CalendarFeedEntity::class,
         FeedEventEntity::class,
+        // v5
+        MemoryEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -64,12 +68,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun fileAccessDao(): FileAccessDao
     abstract fun notificationDao(): NotificationDao
     abstract fun calendarFeedDao(): CalendarFeedDao
+    abstract fun memoryDao(): MemoryDao
 
     companion object {
         /** Also referenced by res/xml backup rules. */
         const val NAME = "ai_launcher.db"
 
-        val MIGRATIONS: Array<Migration> = arrayOf(Migration1To2, Migration2To3, Migration3To4)
+        val MIGRATIONS: Array<Migration> = arrayOf(Migration1To2, Migration2To3, Migration3To4, Migration4To5)
     }
 }
 
@@ -170,5 +175,12 @@ object Migration3To4 : Migration(3, 4) {
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_events_feedId` ON `feed_events` (`feedId`)")
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_events_startMillis` ON `feed_events` (`startMillis`)")
+    }
+}
+
+/** v4 → v5: the assistant's memories (ASSISTANT_MEMORY). One new table; nothing else changes. */
+object Migration4To5 : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS `memories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `text` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)")
     }
 }

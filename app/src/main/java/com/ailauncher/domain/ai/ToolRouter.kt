@@ -4,6 +4,7 @@ import com.ailauncher.domain.ai.ModelOutputParser.string
 import com.ailauncher.domain.model.ContactActionType
 import com.ailauncher.domain.model.FileActivityMode
 import com.ailauncher.domain.model.FileTypeFilter
+import com.ailauncher.domain.model.Memory
 import com.ailauncher.domain.model.TodoItem
 import com.ailauncher.domain.model.TodoPriority
 import kotlinx.serialization.json.JsonArray
@@ -55,6 +56,8 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
             ToolNames.GET_TODAY_AGENDA, "get_agenda", "today_agenda" -> valid(agenda(userText))
             ToolNames.GET_DEVICE_INFO, "device_info", "get_device_specs", "get_system_info", "system_info", "phone_info" ->
                 valid(ToolCommand.GetDeviceInfo)
+            ToolNames.MANAGE_MEMORY, "memory", "remember", "save_memory", "add_memory", "list_memories", "recall", "forget", "forget_memory", "delete_memory" ->
+                memory(call.arguments, call.name)
             ToolNames.LIST_UNUSED_APPS, "unused_apps", "list_inactive_apps", "find_unused_apps", "get_unused_apps" ->
                 valid(listUnusedApps(call.arguments, userText))
             ToolNames.FIND_LARGEST_FILES, "largest_files", "find_large_files", "biggest_files", "find_biggest_files" ->
@@ -76,6 +79,21 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
     }
 
     // ---------------------------------------------------------------------------------------- //
+
+    /** manage_memory, or an alias whose name says the action ("forget", "list_memories"). */
+    private fun memory(args: JsonObject, name: String): ToolRouting {
+        val byName = when (name) {
+            "remember", "save_memory", "add_memory" -> MemoryAction.SAVE
+            "list_memories", "recall" -> MemoryAction.LIST
+            "forget", "forget_memory", "delete_memory" -> MemoryAction.FORGET
+            else -> null
+        }
+        val action = MemoryAction.fromWire(args.firstString("action")) ?: byName
+            ?: return ToolRouting.Invalid(name, "Say whether to save, list or forget")
+        val text = args.firstString("text", "fact", "memory", "content", "query", "what")?.trim()?.takeIf { it.isNotEmpty() }
+        if (action != MemoryAction.LIST && text == null) return ToolRouting.Invalid(name, "Nothing to ${action.wireName}")
+        return valid(ToolCommand.ManageMemory(action, text?.take(Memory.MAX_LENGTH)))
+    }
 
     private fun setAlarm(args: JsonObject, userText: String?): ToolRouting {
         var hour = args.int("hour")
@@ -443,6 +461,11 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
         ToolCommand.SortApps -> "Organize apps into smart categories"
         ToolCommand.GetTodayAgenda -> "Check today's schedule"
         ToolCommand.GetDeviceInfo -> "Check this phone's specs"
+        is ToolCommand.ManageMemory -> when (command.action) {
+            MemoryAction.SAVE -> "Remember: ${command.text.orEmpty()}"
+            MemoryAction.LIST -> "What I remember"
+            MemoryAction.FORGET -> "Forget: ${command.text.orEmpty()}"
+        }
         is ToolCommand.ListUnusedApps -> "Find apps unused for ${command.inactiveDays?.let { "$it days" } ?: "a while"}"
         is ToolCommand.FindLargestFiles -> "Find the ${command.limit} largest ${command.fileType.displayName}"
         is ToolCommand.QueryFilesByActivity -> filesSummary(command)
@@ -478,6 +501,10 @@ class ToolRouter(private val now: () -> ZonedDateTime = { ZonedDateTime.now() })
                 put("state", command.state.name.lowercase(Locale.ROOT))
             }
             ToolCommand.SortApps, ToolCommand.GetTodayAgenda, ToolCommand.GetDeviceInfo -> Unit
+            is ToolCommand.ManageMemory -> {
+                put("action", command.action.wireName)
+                command.text?.let { put("text", it) }
+            }
             is ToolCommand.ListUnusedApps -> command.inactiveDays?.let { put("inactiveDays", it) }
             is ToolCommand.FindLargestFiles -> {
                 put("limit", command.limit)
